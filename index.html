@@ -121,6 +121,15 @@ input[type=range]{accent-color:var(--teal);width:100%}
 #kpi .g b{display:block;font:600 24px/1 var(--cond)} #kpi .g span{font-size:12px;color:var(--ink-2)}
 #kpi .g em{font-style:normal;font-size:13px;color:var(--ink-2);font-family:var(--cond);font-weight:500}
 body.has-sel #kpi .x2{display:none}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--cast);flex:none;margin-top:5px}.dot.ok{background:var(--leaf);box-shadow:0 0 0 3px rgba(74,138,58,.18)}.dot.err{background:var(--alert)}.dot.plan{background:transparent;border:1.5px dashed var(--cast)}
+.integ-src{display:flex;gap:8px;font-size:13px;margin-bottom:6px}
+.subs{list-style:none;margin:0 0 10px;padding:0;display:grid;gap:5px}.subs li{display:grid;grid-template-columns:12px 1fr;gap:0 8px;font-size:13px}.subs b{font:600 14px/1.25 var(--cond)}.subs small{grid-column:2;color:var(--ink-2);font-size:12px;line-height:1.3}
+.rules .tog{align-items:flex-start;border-top:1px solid var(--line);padding:7px 0}.rules .tog input{margin-top:2px}.rules span{display:grid}.rules b{font:600 14px/1.25 var(--cond)}.rules small{color:var(--ink-2);font-size:12px;line-height:1.3}
+.inp{width:100%;border:1px solid var(--line-2);background:var(--raise);border-radius:8px;padding:7px 9px;font-size:13px}.inp:focus{outline:2px solid var(--teal);outline-offset:-1px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px} #card .fld{margin:8px 0}
+.istat{font-size:12.5px;padding:8px 10px;border-radius:8px;background:var(--teal-soft);margin:6px 0}.istat.err{background:var(--alert-soft);color:var(--alert)}
+code{font:500 11.5px/1.4 ui-monospace,Menlo,Consolas,monospace;background:var(--line);padding:1px 5px;border-radius:4px;word-break:break-all}
+.badge{display:inline-block;font:600 10.5px/1 var(--font);padding:3px 6px;border-radius:5px;background:var(--line);color:var(--ink-2);margin-left:4px;vertical-align:1px}.badge.live{background:var(--leaf);color:#fff}
 #kpi h4,#card h4{margin:12px 0 6px;font:600 15px/1 var(--cond)}
 #spark{width:100%;height:78px;display:block}
 .legend{display:flex;gap:12px;font-size:12px;color:var(--ink-2);margin-top:4px}
@@ -1051,8 +1060,8 @@ const CONTEXT = [];
 
 // ================= simulation state =================
 const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-const SIM = { h: 9.5, dow: 4, speed: 60, paused: false, rain: 0, rainTarget: 0, active: null, actT: 0, log: [], kpi: {}, hist: { p: new Array(96).fill(null), s: new Array(96).fill(null), o: new Array(96).fill(null) },
-  tank: 72, pump: false, hyd: { ph: 6.12, ec: 1.84, wt: 26.4, pump: true, nut: 81 }, kwh: 0, solarKwh: 0, nightLock: false, lastPrayerLog: -1 };
+const SIM = { h: 9.5, dow: 4, speed: 60, paused: false, rain: 0, rainTarget: 0, active: null, actT: 0, log: [], kpi: {}, hist: { p: new Array(96).fill(null), s: new Array(96).fill(null), o: new Array(96).fill(null), w: new Array(96).fill(0) },
+  tank: 72, pump: false, saveKwh: 0, hyd: { ph: 6.12, ec: 1.84, wt: 26.4, pump: true, nut: 81 }, kwh: 0, solarKwh: 0, nightLock: false, lastPrayerLog: -1 };
 const PRAYERS = [['Subuh', 4.5], ['Dzuhur', 11.83], ['Ashar', 15.17], ['Maghrib', 17.83], ['Isya', 19.0]];
 const AC_TYPES = new Set(['office', 'class', 'studio', 'meeting', 'dining', 'dorm', 'room', 'mosque', 'prayer', 'cafe', 'lobby', 'security', 'clinic', 'gym', 'vault']);
 function hash3(a, b, c) { let h = 2166136261; for (const ch of String(a) + '|' + b + '|' + c) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return ((h >>> 0) % 10000) / 10000; }
@@ -1105,7 +1114,7 @@ function logEv(msg, cls = '', key) {
 function simTick(dtSim, init) {
   const h = SIM.h, dow = SIM.dow, To = outdoorT(h), si = sunInfo(h), day = smooth(-.05, .35, si.elev), night = 1 - smooth(-.08, .12, si.elev);
   const k = init ? 1 : 1 - Math.exp(-dtSim / 420);
-  let tot = 0, staff = 0, staffCap = 0, power = 0, tsum = 0, tn = 0, alarms = 0;
+  let tot = 0, staff = 0, staffCap = 0, power = 0, tsum = 0, tn = 0, alarms = 0, waste = 0; const work = dow >= 1 && dow <= 5 && h >= 7 && h < 18;
   const evac = SIM.active === 'evakuasi';
   for (const r of ROOMS) {
     const s = r.s; if (r.type === 'parking') continue;
@@ -1125,8 +1134,8 @@ function simTick(dtSim, init) {
     if (r.id === 'parkirMobil') { const t = 11 * clamp(.18 + .8 * staffF); s.occ = Math.round(init ? t : lerp(s.occ, t, k)); }
     // AC
     const acOk = AC_TYPES.has(r.type);
-    let acAuto = acOk && (s.occ > 0 || r.type === 'vault');
-    if (r.type === 'mosque' && minutesToPrayer(h, dow) < 25) { acAuto = true; if (!s.ac && !init) logEv(`Pre-cooling masjid dimulai — ${Math.round(minutesToPrayer(h, dow))} menit sebelum waktu salat`, 'o', 'precool'); }
+    let acAuto = acOk && (s.occ > 0 || r.type === 'vault' || (!RULES.kosong.on && work && WORKTYPES.has(r.type)));
+    if (r.type === 'mosque' && RULES.precool.on && minutesToPrayer(h, dow) < 25) { acAuto = true; if (!s.ac && !init) logEv(`Pre-cooling masjid dimulai — ${Math.round(minutesToPrayer(h, dow))} menit sebelum waktu salat`, 'o', 'precool'); }
     if (r.type === 'dorm' && !(h >= 21 || h < 6)) acAuto = acAuto && s.occ > 2;
     const acNow = s.acMode === 'on' ? acOk : s.acMode === 'off' ? false : acAuto;
     if (evac) s.ac = false; else s.ac = acNow;
@@ -1135,13 +1144,15 @@ function simTick(dtSim, init) {
     const tTarget = s.ac ? s.set : To + (r.k === 2 && !r.zoneOnly ? 2.2 : 1.2) + gain * 2.2 + (r.type === 'kitchen' && s.occ ? 4 : 0) + (FIRE.on && FIRE.room === r ? 30 : 0);
     const tau = s.ac ? 500 : 1800; s.temp = init ? (s.ac ? s.set + .4 : tTarget) : s.temp + (tTarget - s.temp) * (1 - Math.exp(-dtSim / tau));
     s.hum = clamp(lerp(s.hum, (s.ac ? 54 : 70) + SIM.rain * 12 + gain * 5, init ? 1 : 1 - Math.exp(-dtSim / 900)), 35, 95);
-    const co2T = 425 + (r.zoneOnly ? 0 : 640 * gain) * (s.ac ? 1 : .6) + (FIRE.on && FIRE.room === r ? 3000 : 0);
+    const vent = RULES.co2.on && s.co2 > 1000 && !r.zoneOnly; if (vent && !init) logEv(`CO₂ ${r.name} ${Math.round(s.co2)} ppm — ventilasi udara segar dinaikkan`, 'w', 'co2' + r.id);
+    const co2T = (425 + (r.zoneOnly ? 0 : 640 * gain) * (s.ac ? 1 : .6)) * (vent ? .68 : 1) + (FIRE.on && FIRE.room === r ? 3000 : 0);
     s.co2 = init ? co2T : s.co2 + (co2T - s.co2) * (1 - Math.exp(-dtSim / 700));
     // lights
     let lv = 0;
     if (r.type === 'hydro') lv = (h >= 18 && h < 23) ? 1 : 0;
     else if (r.type === 'security') lv = night > .3 ? 1 : .4;
-    else if (s.occ > 0 && !r.zoneOnly) lv = clamp(1 - day * .72, .25, 1);
+    else if (s.occ > 0 && !r.zoneOnly) lv = RULES.daylight.on ? clamp(1 - day * .72, .25, 1) : 1;
+    if (!RULES.kosong.on && work && WORKTYPES.has(r.type) && !r.zoneOnly) lv = Math.max(lv, RULES.daylight.on ? clamp(1 - day * .72, .25, 1) : 1);
     if (evac && !r.zoneOnly) lv = 1;
     if (SECURITY.alarm && r.bld === SECURITY.zoneBld) lv = 1;
     s.light = s.lightMode === 'on' ? 1 : s.lightMode === 'off' ? 0 : lv;
@@ -1149,18 +1160,19 @@ function simTick(dtSim, init) {
     const ac = s.ac ? r.area * .1 * clamp((To - s.set + 5) / 9, .35, 1.3) : 0;
     const lt = r.zoneOnly ? 0 : r.area * .009 * s.light;
     const plug = r.type === 'parking' ? 0 : s.occ * (r.type === 'office' || r.type === 'studio' ? .13 : .04) + (r.type === 'kitchen' && s.occ ? 4.2 : 0) + (r.type === 'security' ? .8 : 0) + (r.type === 'vault' ? 1.6 : 0);
-    s.kw = ac + lt + plug; power += s.kw;
+    s.kw = ac + lt + plug + (vent ? .45 : 0); liveOverride(r); power += s.kw; waste += ruleWaste(r, h, dow, To, day);
     if (s.ac || ['office', 'class', 'studio', 'meeting', 'mosque', 'dorm'].includes(r.type)) { if (s.occ > 0 || s.ac) { tsum += s.temp; tn++; } }
     s.alarm = (FIRE.on && FIRE.room === r) ? 2 : (s.co2 > 1150 || (s.occ > 0 && AC_TYPES.has(r.type) && s.temp > 29.5)) ? 1 : 0;
     if (s.alarm) alarms++;
   }
   // site-wide loads
-  power += 4.5 + night * 1.8 + (SIM.pump ? 2.2 : 0) + (SIM.hyd.pump ? .4 : 0);
+  power += 4.5 + night * 1.8 + (SIM.pump ? 2.2 : 0) + (SIM.hyd.pump ? .4 : 0) + FAC.kw;
   const solarCap = (DET.on && DET.solarCount ? DET.solarCount : SOLAR.length) * .45; const irr = Math.max(0, si.elev) ** 1.15 * (1 - .78 * SIM.rain) * .84;
   const solar = solarCap * irr * (0.95 + .05 * Math.sin(h * 7.1));
   // water
   const use = (tot * .11 + 6) * dtSim / 60;
-  if (SIM.tank < 34 && !SIM.pump) { SIM.pump = true; if (!init) logEv('Tandon di bawah 35% — pompa pengisian otomatis menyala', 'w'); }
+  if (!RULES.pompa.on && SIM.tank < 15 && !init) logEv('Tandon kritis di bawah 15% — aturan pompa otomatis sedang mati', 'a', 'tank');
+  if (RULES.pompa.on && SIM.tank < 34 && !SIM.pump) { SIM.pump = true; if (!init) logEv('Tandon di bawah 35% — pompa pengisian otomatis menyala', 'w'); }
   if (SIM.tank > 92 && SIM.pump) { SIM.pump = false; if (!init) logEv('Tandon penuh 92% — pompa mati', 'o'); }
   const inflow = ((SIM.pump ? 170 : 0) + SIM.rain * 140) * dtSim / 60;
   SIM.tank = clamp(SIM.tank + (inflow - use) / 330, 0, 100);
@@ -1171,16 +1183,17 @@ function simTick(dtSim, init) {
   Hd.ec = clamp(Hd.ec - dtSim / 60 * .0004 + (RND() - .5) * .002, 1.3, 2.4); if (Hd.ec < 1.45) { Hd.ec = 1.9; Hd.nut = Math.max(10, Hd.nut - 4); if (!init) logEv('Nutrisi hidroponik ditambah otomatis (EC 1,9)', 'o'); }
   Hd.wt = lerp(Hd.wt, 24.5 + 4 * Math.max(0, si.elev) - SIM.rain * 1.5, init ? 1 : 1 - Math.exp(-dtSim / 1500));
   // night lock / security posture
-  const shouldLock = h >= 22 || h < 5;
+  const shouldLock = RULES.malam.on && (h >= 22 || h < 5);
   if (shouldLock !== SIM.nightLock) { SIM.nightLock = shouldLock; if (!init) logEv(shouldLock ? 'Mode malam: pintu akses dikunci, CCTV ke mode deteksi gerak' : 'Mode siang: pintu akses dibuka sesuai jadwal', shouldLock ? 'w' : 'o'); }
   // prayer log
   for (const [n, t] of PRAYERS) { const key = n + dow; if (h >= t && h < t + .05 && SIM.lastPrayerLog !== key && !init) { SIM.lastPrayerLog = key; logEv(`Waktu ${dow === 5 && n === 'Dzuhur' ? 'salat Jumat' : n} (perkiraan) — audio masjid & AC sudah siap`, ''); } }
   // energy integration
-  SIM.kwh += power * dtSim / 3600; SIM.solarKwh += solar * dtSim / 3600;
+  if (INTEG.site && performance.now() - INTEG.site.t < 300000) { const v = INTEG.site.v; if (isFinite(v.tandon)) SIM.tank = +v.tandon; if (isFinite(v.daya_kampus)) power = +v.daya_kampus; }
+  SIM.kwh += power * dtSim / 3600; SIM.solarKwh += solar * dtSim / 3600; if (!init) SIM.saveKwh += waste * dtSim / 3600;
   const mp = ROOM.parkirMotor.s.occ;
   const avgT = tn ? tsum / tn : To;
-  SIM.kpi = { power, solar, net: power - solar, people: tot, avgT, To, tank: SIM.tank, moto: mp, cars: ROOM.parkirMobil.s.occ, alarms, day, night, elev: si.elev };
-  const slot = Math.floor(h * 4) % 96; SIM.hist.p[slot] = power; SIM.hist.s[slot] = solar; SIM.hist.o[slot] = tot;
+  SIM.kpi = { waste, power, solar, net: power - solar, people: tot, avgT, To, tank: SIM.tank, moto: mp, cars: ROOM.parkirMobil.s.occ, alarms, day, night, elev: si.elev };
+  const slot = Math.floor(h * 4) % 96; SIM.hist.p[slot] = power; SIM.hist.s[slot] = solar; SIM.hist.o[slot] = tot; SIM.hist.w[slot] = waste;
 }
 
 // ================= lighting from time of day =================
@@ -1769,6 +1782,7 @@ function renderSide() {
     <label class="tog"><input type="checkbox" id="tgAuto" ${UI.autoRot ? 'checked' : ''}> Putar otomatis saat diam</label>
     <label class="tog"><input type="checkbox" id="tgOverlay" ${UI.overlay ? 'checked' : ''}> Tampilkan denah di permukaan tanah</label>
     <label class="tog"><input type="checkbox" id="tgPlanned2" ${UI.planned ? 'checked' : ''}> Rencana pengembangan</label>
+    ${facadeControlsHTML()}
     <h3>Gedung</h3><ul class="lst">${BLDG.map((b, i) => `<li><button data-b="${b.id}" aria-current="${UI.selB === b}"><span class="k">${String.fromCharCode(65 + i)}</span><b>${b.name}</b><small>${b.desc}</small></button></li>`).join('')}</ul>
     <h3>Render SketchUp asli</h3><div class="gal">${ASSETS.gallery.map((g, i) => `<button data-gal="${i}" aria-label="${esc(g.cap)}"><img src="${g.src}" alt="${esc(g.cap)}" loading="lazy"></button>`).join('')}</div>`;
   }
@@ -1786,6 +1800,8 @@ function renderSide() {
     <label class="tog"><input type="checkbox" data-layer="xray" ${UI.layers.xray ? 'checked' : ''}> Dinding tembus pandang</label>
     <label class="tog"><input type="checkbox" data-layer="net" ${UI.layers.net ? 'checked' : ''}> Jaringan sensor IoT ke pos kendali</label>
     <label class="tog"><input type="checkbox" data-layer="cctv" ${UI.layers.cctv ? 'checked' : ''}> Jangkauan 10 kamera CCTV</label>
+    ${facadeControlsHTML()}
+    ${integSideHTML()}
     <h3>Simulasi</h3><div class="sims">${SIMS_DEF.map(([id, ic, t, d]) => `<button class="sim" data-sim="${id}" aria-pressed="${SIM.active === id || (id === 'hujan' && SIM.rainTarget > .5)}">${ICO[ic]}<b>${t}</b><small>${d}</small></button>`).join('')}</div>
     ${SIM.active ? `<button class="btn danger wide" style="margin-top:8px" data-stop-sim>Hentikan simulasi</button>` : ''}
     <h3>Kejadian terbaru</h3><ul class="log" id="logL"></ul>`;
@@ -1805,6 +1821,10 @@ $('#side').addEventListener('click', e => {
   if (t.dataset.metric) { UI.metric = t.dataset.metric; renderSide(); }
   if (t.dataset.floor !== undefined) { UI.floor = t.dataset.floor === 'null' ? null : +t.dataset.floor; renderSide(); }
   if (t.dataset.sim) runSim(t.dataset.sim);
+  if (t.dataset.fmode) setFacade(t.dataset.fmode);
+  if (t.dataset.ftheme) setFacade(null, t.dataset.ftheme);
+  if (t.hasAttribute('data-nightview')) nightView();
+  if (t.hasAttribute('data-integ')) openInteg();
   if (t.hasAttribute('data-stop-sim')) stopSim();
 });
 $('#side').addEventListener('input', e => {
@@ -1819,6 +1839,7 @@ $('#side').addEventListener('change', e => {
   if (t.id === 'tgAuto') UI.autoRot = t.checked;
   if (t.id === 'tgDet') setDetailed(t.checked);
   if (t.id === 'tgOverlay') { UI.overlay = t.checked; PT.plan[0] = t.checked ? .7 : 0; }
+  if (t.dataset.rule) { RULES[t.dataset.rule].on = t.checked; logEv(`Aturan “${RULES[t.dataset.rule].name}” ${t.checked ? 'diaktifkan' : 'dinonaktifkan'}`, t.checked ? 'o' : 'w'); simTick(.001); renderKPI(); }
   if (t.dataset.layer) { UI.layers[t.dataset.layer] = t.checked; if (t.dataset.layer === 'xray') PT.xray = t.checked ? 1 : 0; CCTV_GROUP.visible = UI.layers.cctv || SIM.active === 'penyusup'; NET.group.visible = UI.layers.net; }
 });
 function renderLog() { const L = $('#logL'); if (!L) return; L.innerHTML = SIM.log.slice(0, 30).map(l => `<li><time>${l.t}</time><span class="${l.cls}">${esc(l.msg)}</span></li>`).join('') || '<li><time></time><span>Belum ada kejadian. Jalankan simulasi atau percepat waktu.</span></li>'; }
@@ -1834,7 +1855,7 @@ function renderKPI() {
     <div class="x2"><h4>24 jam terakhir</h4><canvas id="spark" width="560" height="156"></canvas>
     <div class="legend"><span><i style="background:var(--ink)"></i>Daya</span><span><i style="background:#e8a637"></i>Surya</span><span><i style="background:var(--teal)"></i>Orang</span></div>
     <h4>Hidroponik rooftop</h4><div class="meter"><div><b>${H.ph.toFixed(2)}</b><span>pH</span></div><div><b>${H.ec.toFixed(2)}</b><span>EC mS/cm</span></div><div><b>${H.pump ? 'Nyala' : 'Mati'}</b><span>Pompa NFT</span></div></div>
-    <div style="font-size:12.5px;color:var(--ink-2)">Energi hari ini ${SIM.kwh.toFixed(0)} kWh, dari surya ${SIM.solarKwh.toFixed(0)} kWh. Alarm aktif: ${K.alarms}.</div></div>`;
+    <div style="font-size:12.5px;color:var(--ink-2)">Energi hari ini ${SIM.kwh.toFixed(0)} kWh, dari surya ${SIM.solarKwh.toFixed(0)} kWh, dihemat otomasi ${SIM.saveKwh.toFixed(0)} kWh. Sumber data: ${SRC_NAME[INTEG.src]}${INTEG.status === 'ok' ? ' (' + liveCount() + ' ruang live)' : ''}. Alarm aktif: ${K.alarms}.</div></div>`;
   drawSpark(); if (UI.sel) cardPos();
 }
 function drawSpark() {
@@ -1849,10 +1870,10 @@ function drawSpark() {
 }
 
 // ================= cards =================
-function closeCard() { UI.sel = null; UI.selB = null; $('#card').style.display = 'none'; document.body.classList.remove('has-sel'); }
+function closeCard() { UI.sel = null; UI.selB = null; UI.integ = false; $('#card').style.display = 'none'; document.body.classList.remove('has-sel'); }
 function cardPos() { const c = $('#card'); const off = MODE === 'monitor' && innerWidth > 760; c.style.top = off ? `calc(${$('#kpi').offsetHeight + 28}px + var(--bar) + env(safe-area-inset-top,0px))` : ''; c.style.maxHeight = off ? `calc(100% - ${$('#kpi').offsetHeight + 110}px - var(--bar))` : ''; }
 function selectBuilding(b) {
-  UI.selB = b; UI.sel = null; const rooms = ROOMS.filter(r => r.bld === b.id && r.type !== 'parking');
+  UI.selB = b; UI.sel = null; UI.integ = false; const rooms = ROOMS.filter(r => r.bld === b.id && r.type !== 'parking');
   const c = $('#card'); c.style.display = 'block'; cardPos();
   c.innerHTML = `<button class="ib x" aria-label="Tutup">✕</button><h3>${esc(b.name)}</h3><div class="sub">${esc(b.desc)}</div>
     <ul class="lst">${rooms.slice(0, 12).map(r => `<li><button data-room="${r.id}"><span class="k">L${r.k + 1}</span><b>${esc(r.name)}</b><small>${TYPE_LABEL[r.type]}${r.cap ? ', kapasitas ' + r.cap : ''}</small></button></li>`).join('')}</ul>
@@ -1860,7 +1881,7 @@ function selectBuilding(b) {
   flyTo({ target: b.c, r: b.r, phi: .95, fov: 40 }, 1.3); renderSide();
 }
 function selectRoom(r, fly = true) {
-  UI.sel = r; UI.selB = null; if (MODE === 'monitor' && r.k < 2) { UI.floor = r.k; renderSide(); } document.body.classList.add('has-sel'); const c = $('#card'); c.style.display = 'block'; cardPos(); renderRoomCard();
+  UI.sel = r; UI.selB = null; UI.integ = false; if (MODE === 'monitor' && r.k < 2) { UI.floor = r.k; renderSide(); } document.body.classList.add('has-sel'); const c = $('#card'); c.style.display = 'block'; cardPos(); renderRoomCard();
   if (fly && MODE === 'monitor') flyTo({ target: [r.cx, r.wy + 1, r.cz], r: clamp(Math.sqrt(r.area) * 3.2, 22, 70), fov: 40, phi: .9 }, 1.1);
 }
 function renderRoomCard() {
@@ -1879,6 +1900,7 @@ function renderRoomCard() {
     ${ac ? `<div class="ctl"><span>AC ${s.ac ? 'nyala' : 'mati'}</span>${seg('ac', s.acMode)}</div><div class="ctl"><span>Setelan suhu</span><span class="set"><button class="ib" data-set="-1" aria-label="Turunkan">−</button><b>${s.set.toFixed(1)}°</b><button class="ib" data-set="1" aria-label="Naikkan">+</button></span></div>` : ''}
     ${vault ? `<div class="ctl"><span>Pintu brankas</span><button class="ib ${vault.locked ? 'on' : ''}" data-lock>${vault.locked ? 'Terkunci' : 'Terbuka'}</button></div>` : ''}
     ${extra}
+    <div class="ctl"><span>Sumber data <span class="badge ${r.live && performance.now() - r.live.t < 300000 ? 'live' : ''}">${r.live && performance.now() - r.live.t < 300000 ? 'LIVE ' + SRC_NAME[INTEG.src] : 'SIMULASI'}</span></span><code>${esc(INTEG.cfg.mqtt.prefix)}/${r.id}</code></div>
     ${s.alarm ? `<div class="note" style="border-color:var(--alert);color:var(--alert)">${s.alarm === 2 ? 'Kebakaran terdeteksi di ruang ini.' : s.co2 > 1100 ? 'CO₂ tinggi — ventilasi perlu ditambah.' : 'Suhu di atas batas nyaman.'}</div>` : ''}
     <div class="row" style="margin-top:10px">${!r.zoneOnly || r.type === 'parking' ? `<button class="btn ghost" data-walkin>Lihat dari dalam</button>` : ''}${r.type !== 'planned' && r.type !== 'parking' && r.type !== 'tank' ? `<button class="btn ghost" data-firehere>Simulasikan kebakaran</button>` : ''}</div>`;
 }
@@ -1889,9 +1911,9 @@ $('#card').addEventListener('click', e => {
   if (t.dataset.enter) { setMode('jelajah', { stop: t.dataset.enter }); return; }
   if (t.dataset.watch) { const b = BLD[t.dataset.watch]; setMode('monitor'); flyTo({ target: b.c, r: b.r, phi: .85, fov: 40 }, 1.2); return; }
   if (!r) return;
-  if (t.dataset.light) { r.s.lightMode = t.dataset.light; simTick(0.001); logEv(`Lampu ${r.name}: ${{ auto: 'otomatis', on: 'dinyalakan', off: 'dimatikan' }[t.dataset.light]} dari panel`, ''); }
-  if (t.dataset.ac) { r.s.acMode = t.dataset.ac; simTick(0.001); logEv(`AC ${r.name}: ${{ auto: 'otomatis', on: 'dinyalakan', off: 'dimatikan' }[t.dataset.ac]} dari panel`, ''); }
-  if (t.dataset.set) { r.s.set = clamp(r.s.set + (+t.dataset.set) * .5, 18, 30); if (r.s.acMode === 'off') r.s.acMode = 'on'; }
+  if (t.dataset.light) { r.s.lightMode = t.dataset.light; simTick(0.001); integCommand(r); logEv(`Lampu ${r.name}: ${{ auto: 'otomatis', on: 'dinyalakan', off: 'dimatikan' }[t.dataset.light]} dari panel`, ''); }
+  if (t.dataset.ac) { r.s.acMode = t.dataset.ac; simTick(0.001); integCommand(r); logEv(`AC ${r.name}: ${{ auto: 'otomatis', on: 'dinyalakan', off: 'dimatikan' }[t.dataset.ac]} dari panel`, ''); }
+  if (t.dataset.set) { r.s.set = clamp(r.s.set + (+t.dataset.set) * .5, 18, 30); if (r.s.acMode === 'off') r.s.acMode = 'on'; integCommand(r); }
   if (t.hasAttribute('data-lock')) { const d = DOORS.find(d => d.room === r && d.vault); if (d) { d.locked = !d.locked; logEv(`Pintu brankas ${d.locked ? 'dikunci' : 'dibuka'} dari panel`, d.locked ? 'o' : 'w'); } }
   if (t.hasAttribute('data-walkin')) { enterRoom(r); return; }
   if (t.hasAttribute('data-firehere')) { runSim('evakuasi', r); return; }
@@ -2041,144 +2063,6 @@ function updateScenario(dt) {
   if (id === 'harian' && SIM.dayStart !== SIM.dow) { stopSim(true); banner(`Satu hari selesai<small>Total energi ${SIM.kwh.toFixed(0)} kWh, dari panel surya ${SIM.solarKwh.toFixed(0)} kWh (${(SIM.solarKwh / Math.max(1, SIM.kwh) * 100).toFixed(0)}%).</small>`, 'info', 'Tutup'); $('#banner button').onclick = hideBanner; }
 }
 
-// ================= assistant: shared actions =================
-const STOPW = new Set(['nyalakan', 'hidupkan', 'matikan', 'padamkan', 'nyala', 'mati', 'hidup', 'lampu', 'lampunya', 'di', 'ke', 'yang', 'dan', 'tolong', 'semua', 'seluruh', 'atur', 'set', 'derajat', 'suhu', 'jadi', 'menjadi', 'bawa', 'saya', 'aku', 'pergi',
-  'lihat', 'tunjukkan', 'dong', 'ya', 'mohon', 'ruangan', 'acnya', 'pendingin', 'udara', 'simulasi', 'simulasikan', 'jalankan', 'mulai', 'lantai', 'tempat', 'antar', 'masuk', 'buka', 'tampilkan', 'kamera', 'sekarang', 'untuk', 'pada', 'dari', 'ini', 'itu', 'gedung', 'the', 'please', 'turn', 'on', 'off', 'aktifkan', 'nonaktifkan', 'kebakaran', 'evakuasi', 'api', 'sumber']);
-const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9.,° ]+/g, ' ').replace(/\s+/g, ' ').trim();
-function findRooms(q) {
-  q = norm(q); const lv = q.match(/(?:lantai|lt\.?)\s*(\d)/); const all = /(semua|seluruh)/.test(q);
-  let list = ROOMS.filter(r => r.type !== 'planned'); if (lv) list = list.filter(r => r.k === +lv[1] - 1);
-  const toks = q.split(' ').filter(w => w.length > 2 && !STOPW.has(w) && !/^[\d.,]+$/.test(w) && w !== 'lt');
-  if (!toks.length) return (all || lv) ? list : [];
-  let best = 0, out = [];
-  for (const r of list) { const hay = norm(`${r.name} ${r.id} ${r.bld} ${TYPE_LABEL[r.type]}`); let sc = 0; for (const t of toks) if (hay.includes(t)) sc++; if (sc > best) { best = sc; out = [r]; } else if (sc === best && sc > 0) out.push(r); }
-  return best ? out : (all ? list : []);
-}
-function findPlace(q) {
-  q = norm(q); const toks = q.split(' ').filter(w => w.length > 2 && !STOPW.has(w)); if (!toks.length) return null;
-  let best = null, bs = 0;
-  const cand = [...STOPS.filter(s => s.id[0] !== '_').map(s => ({ kind: 'stop', id: s.id, name: s.name, hay: norm(s.id + ' ' + s.name + ' ' + s.sub) })),
-    ...BLDG.map(b => ({ kind: 'bld', id: b.id, name: b.name, hay: norm(b.id + ' ' + b.name) })), ...ROOMS.filter(r => r.type !== 'planned').map(r => ({ kind: 'room', id: r.id, name: r.name, hay: norm(r.id + ' ' + r.name) }))];
-  for (const c of cand) { let sc = 0; for (const t of toks) if (c.hay.includes(t)) sc += t.length > 4 ? 1.2 : 1; if (c.kind === 'stop') sc += .05; if (sc > bs) { bs = sc; best = c; } }
-  return bs >= 1 ? best : null;
-}
-const API = {
-  lights(q, on) { const rs = findRooms(q).filter(r => !r.zoneOnly); if (!rs.length) throw new Error('Ruang tidak ditemukan: ' + q);
-    const mode = on === null || on === undefined ? 'auto' : on ? 'on' : 'off'; rs.forEach(r => r.s.lightMode = mode); simTick(.001);
-    const names = rs.length > 4 ? `${rs.length} ruang` : rs.map(r => r.name).join(', '); logEv(`Asisten: lampu ${names} ${mode === 'on' ? 'dinyalakan' : mode === 'off' ? 'dimatikan' : 'kembali otomatis'}`, '');
-    if (rs.length === 1 && MODE === 'monitor') selectRoom(rs[0]); refreshAfterAction(); return { ok: true, ruang: rs.map(r => r.name), mode }; },
-  ac(q, on, temp) { const rs = findRooms(q).filter(r => AC_TYPES.has(r.type)); if (!rs.length) throw new Error('Tidak ada ruang ber-AC yang cocok: ' + q);
-    rs.forEach(r => { if (on === false) r.s.acMode = 'off'; else { r.s.acMode = on === true || temp ? 'on' : 'auto'; if (temp) r.s.set = clamp(+temp, 18, 30); } }); simTick(.001);
-    logEv(`Asisten: AC ${rs.length > 4 ? rs.length + ' ruang' : rs.map(r => r.name).join(', ')} ${on === false ? 'dimatikan' : temp ? 'diatur ' + (+temp).toFixed(1) + '°C' : 'dinyalakan'}`, '');
-    if (rs.length === 1 && MODE === 'monitor') selectRoom(rs[0]); refreshAfterAction(); return { ok: true, ruang: rs.map(r => r.name), suhu: temp || null }; },
-  goto(q) { const p = findPlace(q); if (!p) throw new Error('Tempat tidak ditemukan: ' + q);
-    if (p.kind === 'stop') { if (MODE !== 'jelajah') setMode('jelajah', { stop: p.id }); else goStop(p.id); }
-    else if (p.kind === 'bld') { if (MODE === 'jelajah') goStop(BLD[p.id].stop); else { if (MODE !== 'orbit') setMode('orbit'); selectBuilding(BLD[p.id]); } }
-    else { const r = ROOM[p.id]; if (MODE === 'jelajah') enterRoom(r); else { if (MODE !== 'monitor') setMode('monitor'); selectRoom(r); } }
-    return { ok: true, tujuan: p.name }; },
-  sim(name, ruang) { const n = norm(name); const map = { evakuasi: 'evakuasi', kebakaran: 'evakuasi', jumat: 'jumat', penyusup: 'penyusup', keamanan: 'penyusup', hujan: 'hujan', harian: 'harian', '24': 'harian', stop: 'stop', hentikan: 'stop' };
-    const key = Object.keys(map).find(k => n.includes(k)); if (!key) throw new Error('Simulasi tidak dikenal: ' + name);
-    if (map[key] === 'stop') { if (SIM.rainTarget > .5 && !SIM.active) runSim('hujan'); return { ok: true, pesan: stopSim() }; }
-    const r = ruang ? findRooms(ruang)[0] : null; return { ok: true, pesan: runSim(map[key], r || undefined), sumberApi: r ? r.name : (map[key] === 'evakuasi' ? 'Pantry' : undefined) }; },
-  time(h, hari) { h = clamp(+h, 0, 23.99); if (isNaN(h)) throw new Error('Jam tidak valid'); SIM.h = h; if (hari) { const i = DAYS.findIndex(d => norm(d) === norm(hari)); if (i >= 0) SIM.dow = i; } simTick(1, true); renderClock(); refreshAfterAction(); return { ok: true, waktu: `${DAYS[SIM.dow]} ${fmtH(SIM.h)}` }; },
-  mode(m) { m = norm(m); const k = ['denah', 'rakit', 'orbit', 'jelajah', 'monitor'].find(x => m.includes(x)); if (!k) throw new Error('Mode tidak dikenal'); setMode(k); return { ok: true, mode: k }; },
-  status() { const K = SIM.kpi; return { waktu: `${DAYS[SIM.dow]} ${fmtH(SIM.h)}`, cuaca: SIM.rain > .5 ? 'hujan' : 'cerah', simulasi: SIM.active || 'tidak ada', daya_kW: +K.power.toFixed(1), surya_kW: +K.solar.toFixed(1), orang: K.people, suhu_dalam: +K.avgT.toFixed(1), suhu_luar: +K.To.toFixed(1), tandon_persen: +K.tank.toFixed(0), parkir_motor: `${K.moto}/166`, alarm: K.alarms,
-    ruang: ROOMS.filter(r => r.type !== 'planned').map(r => [r.id, r.name, 'Lt' + (r.k + 1), r.s.occ + '/' + r.cap, r.s.temp.toFixed(1) + 'C', Math.round(r.s.co2) + 'ppm', 'lampu ' + (r.s.light > 0 ? Math.round(r.s.light * 100) + '%' : 'mati'), AC_TYPES.has(r.type) ? 'AC ' + (r.s.ac ? 'nyala ' + r.s.set + 'C' : 'mati') : ''].join(' | ')) }; },
-};
-function refreshAfterAction() { renderKPI(); if (UI.sel) renderRoomCard(); }
-function statusLine() { const K = SIM.kpi; return `${DAYS[SIM.dow]} ${fmtH(SIM.h)}: daya ${K.power.toFixed(0)} kW, surya ${K.solar.toFixed(0)} kW, ${K.people} orang di kampus, suhu dalam rata-rata ${K.avgT.toFixed(1)}°C (luar ${K.To.toFixed(0)}°C), tandon ${K.tank.toFixed(0)}%, parkir motor ${K.moto}/166.`; }
-
-// ================= local command parser (works without Claude) =================
-function localCommand(text) {
-  const q = norm(text); let m;
-  try {
-    if (/(hentikan|stop|berhenti|akhiri)/.test(q)) return API.sim('stop').pesan + '.';
-    if (/(kebakaran|evakuasi|\bapi\b)/.test(q)) { const r = findRooms(q)[0]; API.sim('evakuasi', r ? r.id : null); return `Simulasi evakuasi dimulai, sumber api di ${r ? r.name : 'Pantry'}. Agen oranye menuju titik kumpul.`; }
-    if (/jum.?at/.test(q)) { API.sim('jumat'); return 'Simulasi salat Jumat dimulai pukul 11:21.'; }
-    if (/(penyusup|maling|pencuri|intrus|keamanan malam)/.test(q)) { API.sim('penyusup'); return 'Simulasi penyusup malam dimulai. Perhatikan kerucut CCTV.'; }
-    if (/hujan/.test(q)) { API.sim('hujan'); return SIM.rainTarget > .5 ? 'Hujan deras dimulai. Air hujan dipanen ke tandon.' : 'Hujan dihentikan.'; }
-    if (/(24 jam|sehari|satu hari|harian|time ?lapse)/.test(q)) { API.sim('harian'); return 'Time-lapse satu hari kerja dimulai dari 00:00.'; }
-    const on = /(nyalakan|hidupkan|\bnyala\b|\bhidup\b|aktifkan|\bon\b)/.test(q), off = /(matikan|padamkan|\bmati\b|nonaktifkan|\boff\b)/.test(q);
-    if (/lampu/.test(q) && (on || off || /otomatis/.test(q))) { const r = API.lights(q, /otomatis/.test(q) ? null : !off); return `Lampu ${r.ruang.length > 4 ? r.ruang.length + ' ruang' : r.ruang.join(', ')} ${r.mode === 'on' ? 'dinyalakan' : r.mode === 'off' ? 'dimatikan' : 'kembali ke mode otomatis'}.`; }
-    if (/(\bac\b|pendingin)/.test(q)) { m = q.match(/(\d{2}(?:[.,]\d)?)\s*(?:derajat|°|c\b)?/); const t = m ? parseFloat(m[1].replace(',', '.')) : null;
-      const r = API.ac(q, off ? false : true, off ? null : t); return `AC ${r.ruang.length > 4 ? r.ruang.length + ' ruang' : r.ruang.join(', ')} ${off ? 'dimatikan' : t ? 'diatur ke ' + t + '°C' : 'dinyalakan'}.`; }
-    if ((m = q.match(/jam\s*(\d{1,2})(?:[.:](\d{2}))?/)) && /(atur|ubah|pindah|set|jadikan|lompat|ganti|ke)/.test(q)) { let h = +m[1] + (m[2] ? +m[2] / 60 : 0); if (/(malam|sore)/.test(q) && h < 12) h += 12; const d = DAYS.find(d => q.includes(norm(d))); const r = API.time(h, d); return `Waktu simulasi sekarang ${r.waktu}.`; }
-    if ((m = q.match(/(denah|rakit|orbit|jelajah|monitor)/)) && /(mode|tampilan|buka|ganti|pindah)/.test(q)) { API.mode(m[1]); return `Tampilan diganti ke mode ${m[1]}.`; }
-    if (/(\bke\b|pergi|bawa|tunjukkan|lihat|antar|masuk|terbang|zoom)/.test(q)) { const p = findPlace(q); if (p) { API.goto(q); return `Menuju ${p.name}.`; } }
-    if (/(daya|listrik|energi|surya|solar|orang|suhu|panas|tandon|air|parkir|status|berapa|kondisi|ringkas)/.test(q)) {
-      if (/(panas|terpanas|tertinggi)/.test(q)) { const occ = ROOMS.filter(r => AC_TYPES.has(r.type) && !r.zoneOnly && r.s.occ > 0); const r = (occ.length ? occ : ROOMS.filter(r => !r.zoneOnly)).sort((a, b) => b.s.temp - a.s.temp)[0]; return `Ruang berpenghuni terpanas: ${r.name}, ${r.s.temp.toFixed(1)}°C dengan ${r.s.occ} orang. ` + statusLine(); }
-      if (/(ramai|penuh|terpadat)/.test(q)) { const r = ROOMS.filter(r => r.cap && r.type !== 'parking').sort((a, b) => b.s.occ / b.cap - a.s.occ / a.cap)[0]; return `Ruang terpadat: ${r.name}, ${r.s.occ} dari ${r.cap} orang.`; }
-      return statusLine(); }
-  } catch (e) { return e.message + '. Coba sebut nama ruang seperti di daftar, misalnya “Ruang Kerja Holding” atau “Asrama”.'; }
-  return null;
-}
-
-// ================= Claude via the sample capability =================
-const AIS = { sample: null, tools: false, turns: [], busy: false, ctl: null, ready: false };
-const AI_TOOLS = [
-  { name: 'lihat_status', description: 'Membaca keadaan kampus sekarang: waktu, daya, surya, jumlah orang, tandon, parkir, dan status setiap ruang (id | nama | lantai | orang/kapasitas | suhu | CO2 | lampu | AC).', execute: () => API.status() },
-  { name: 'atur_lampu', description: 'Menyalakan, mematikan, atau mengembalikan ke otomatis lampu satu atau banyak ruang. ruang = id/nama ruang, nama gedung, atau "semua lantai 2". nyala true/false, atau null untuk otomatis.',
-    inputSchema: { type: 'object', properties: { ruang: { type: 'string' }, nyala: { type: ['boolean', 'null'] } }, required: ['ruang'] }, execute: i => API.lights(String(i.ruang), i.nyala === undefined ? true : i.nyala) },
-  { name: 'atur_ac', description: 'Mengatur AC ruang: nyala true/false dan suhu setelan opsional (18–30 °C).',
-    inputSchema: { type: 'object', properties: { ruang: { type: 'string' }, nyala: { type: 'boolean' }, suhu: { type: 'number' } }, required: ['ruang'] }, execute: i => API.ac(String(i.ruang), i.nyala !== false, i.suhu ? Number(i.suhu) : null) },
-  { name: 'pergi_ke', description: 'Memindahkan kamera pengguna ke tempat, gedung, atau ruang (contoh: masjid, coffee shop, ruang kerja softdev, rooftop hidroponik). Mengembalikan nama tujuan.',
-    inputSchema: { type: 'object', properties: { tempat: { type: 'string' } }, required: ['tempat'] }, execute: i => API.goto(String(i.tempat)) },
-  { name: 'simulasi', description: 'Menjalankan simulasi: evakuasi (opsional ruang sumber api), jumat, penyusup, hujan, harian, atau stop untuk menghentikan.',
-    inputSchema: { type: 'object', properties: { nama: { type: 'string', enum: ['evakuasi', 'jumat', 'penyusup', 'hujan', 'harian', 'stop'] }, ruang: { type: 'string' } }, required: ['nama'] }, execute: i => API.sim(String(i.nama), i.ruang ? String(i.ruang) : null) },
-  { name: 'atur_waktu', description: 'Mengubah jam simulasi (0–23.99, desimal) dan opsional hari (Senin…Minggu).',
-    inputSchema: { type: 'object', properties: { jam: { type: 'number' }, hari: { type: 'string' } }, required: ['jam'] }, execute: i => API.time(Number(i.jam), i.hari) },
-  { name: 'ganti_mode', description: 'Mengganti tampilan: denah, rakit, orbit, jelajah, atau monitor.',
-    inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['denah', 'rakit', 'orbit', 'jelajah', 'monitor'] } }, required: ['mode'] }, execute: i => API.mode(String(i.mode)) },
-];
-function aiRules(withTools) {
-  return `Kamu adalah PHICOS, asisten gedung pintar di dalam kembaran digital 3D Kampus Kantor PHICOS Bolon: kantor holding, PHICOS Academy, asrama 64 siswa, gedung parkir 166 motor dengan lapangan di atasnya, coffee shop berkaca cyan, dan Masjid Phicos dengan kolam pantul. Pengguna sedang melihat model 3D ini.
-Aturan:
-- Jawab dalam bahasa Indonesia yang ramah, paling banyak 3 kalimat, tanpa format markdown.
-${withTools ? '- Untuk mengubah apa pun (lampu, AC, kamera, simulasi, waktu, tampilan) kamu WAJIB memanggil alat. Jangan mengaku sudah melakukan sesuatu tanpa memanggil alat.\n- Untuk pertanyaan angka, panggil lihat_status bila data di bawah tidak cukup.' : '- Di sesi ini kamu tidak bisa mengubah apa pun; jawab dari data di bawah dan sarankan perintah seperti "nyalakan lampu ruang holding".'}
-- Semua data sensor adalah simulasi; katakan itu bila pengguna bertanya keaslian data.
-Ruang (id: nama, lantai): ${ROOMS.filter(r => r.type !== 'planned').map(r => `${r.id}: ${r.name}, Lt${r.k + 1}`).join('; ')}.
-Tempat untuk pergi_ke: ${STOPS.filter(s => s.id[0] !== '_').map(s => s.name).join(', ')}.
-Keadaan sekarang: ${statusLine()} Mode tampilan: ${MODE}. Simulasi aktif: ${SIM.active || 'tidak ada'}. Cuaca: ${SIM.rain > .5 ? 'hujan' : 'cerah'}.${withTools ? '' : '\nStatus ruang: ' + API.status().ruang.join('; ')}`;
-}
-(async function initAI() {
-  try { if (window.claude && typeof window.claude.use === 'function') { const s = await window.claude.use('sample'); if (s) { AIS.sample = s; const lim = await s.limits().catch(() => null); AIS.tools = !!(lim && lim.tools); } } } catch (e) { }
-  AIS.ready = true; aiState();
-})();
-function aiState() { $('#aiState').textContent = !AIS.ready ? 'Menyiapkan asisten…' : AIS.sample ? (AIS.tools ? 'Terhubung ke Claude — bisa mengendalikan gedung' : 'Terhubung ke Claude — perintah dijalankan lokal') : 'Mode perintah lokal — tanpa koneksi AI'; }
-function addMsg(kind, text) { const d = document.createElement('div'); d.className = 'msg ' + kind; d.textContent = text; $('#aiLog').appendChild(d); $('#aiLog').scrollTop = 1e6; return d; }
-const AI_SUG = ['Bawa saya ke masjid', 'Nyalakan lampu ruang kerja softdev', 'AC ruang holding 23 derajat', 'Simulasikan kebakaran di pantry', 'Berapa daya listrik sekarang?', 'Ruang mana yang paling panas?'];
-function renderSug() { $('#aiSug').innerHTML = AI_SUG.map(s => `<button class="chip" type="button">${esc(s)}</button>`).join(''); }
-$('#aiSug').addEventListener('click', e => { const b = e.target.closest('button'); if (b) aiSend(b.textContent); });
-$('#aiBtn').onclick = () => { const a = $('#ai'); const open = !a.classList.contains('open'); a.classList.toggle('open', open); $('#aiBtn').setAttribute('aria-expanded', open);
-  if (open && !$('#aiLog').children.length) { addMsg('b', 'Halo, saya PHICOS. Saya bisa menyalakan lampu, mengatur AC, memindahkan kamera ke ruang mana pun, dan menjalankan simulasi. Coba salah satu saran di bawah.'); renderSug(); }
-  if (open) setTimeout(() => $('#aiIn').focus(), 50); };
-$('#aiClose').onclick = () => { $('#ai').classList.remove('open'); $('#aiBtn').setAttribute('aria-expanded', 'false'); };
-$('#aiForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#aiIn').value.trim(); if (!v) return; $('#aiIn').value = ''; aiSend(v); });
-const AI_ERR = { rate_limited: 'Batas pemakaian Claude tercapai untuk saat ini. Perintah sederhana tetap bisa dijalankan lokal.', session_expired: 'Sesi Claude berakhir. Masuk lagi untuk memakai asisten AI.', refused: 'Permintaan itu tidak bisa dijawab. Coba ungkapkan dengan cara lain.', empty_completion: 'Tidak ada jawaban. Coba permintaan yang lebih singkat.', upstream_error: 'Koneksi ke Claude terputus. Coba kirim lagi.' };
-async function aiSend(text) {
-  if (AIS.busy) { AIS.ctl && AIS.ctl.abort(); }
-  addMsg('u', text);
-  const useClaude = AIS.sample;
-  if (!useClaude || !AIS.tools) { const loc = localCommand(text); if (loc) { addMsg('b', loc); return; } if (!useClaude) { addMsg('b', 'Saya belum mengerti perintah itu. Contoh yang bisa: “nyalakan lampu asrama”, “AC masjid 24 derajat”, “bawa saya ke lapangan”, “simulasikan kebakaran di kitchen cafe”, “atur jam 19”.'); return; } }
-  AIS.busy = true; const bubble = addMsg('b', 'Berpikir…'); const ctl = new AbortController(); AIS.ctl = ctl;
-  const tools = AIS.tools ? AI_TOOLS.map(t => ({ ...t, execute: (inp, cx) => { const r = t.execute(inp || {}); addMsg('t', '• ' + toolNote(t.name, inp || {})); return r; } })) : undefined;
-  try {
-    const input = [{ role: 'user', content: aiRules(!!tools) }, ...AIS.turns.slice(-8), { role: 'user', content: text }];
-    const opts = { modelTier: 'quick', signal: ctl.signal, onText: ({ text: t }) => { bubble.textContent = t; $('#aiLog').scrollTop = 1e6; } };
-    if (tools) opts.tools = tools; else opts.cache = false;
-    const res = await useClaude(input, opts);
-    bubble.textContent = res.text; $('#aiLog').appendChild(bubble); $('#aiLog').scrollTop = 1e6;
-    AIS.turns.push({ role: 'user', content: text }, { role: 'assistant', content: res.text });
-  } catch (e) {
-    const code = e && e.code;
-    if (code === 'cancelled') { bubble.textContent = e.text || '(dihentikan)'; }
-    else if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(code)) { AIS.sample = null; aiState(); const loc = localCommand(text); bubble.textContent = loc || 'Asisten AI tidak diizinkan di tampilan ini, jadi saya beralih ke perintah lokal. Coba: “nyalakan lampu asrama” atau “bawa saya ke masjid”.'; }
-    else if (code === 'tools_unavailable') { AIS.tools = false; aiState(); const loc = localCommand(text); bubble.textContent = loc || 'Alat kendali belum tersedia di tampilan ini. Coba kirim lagi.'; }
-    else { const loc = localCommand(text); bubble.textContent = (e && e.text ? e.text + '\n' : '') + (loc ? loc : (AI_ERR[code] || 'Terjadi gangguan. Coba kirim lagi.')); }
-  } finally { AIS.busy = false; }
-}
-function toolNote(name, i) { return { lihat_status: 'Membaca sensor kampus', atur_lampu: `Lampu ${i.ruang}: ${i.nyala === false ? 'mati' : i.nyala === null ? 'otomatis' : 'nyala'}`, atur_ac: `AC ${i.ruang}${i.nyala === false ? ': mati' : i.suhu ? ': ' + i.suhu + '°C' : ': nyala'}`, pergi_ke: `Menuju ${i.tempat}`, simulasi: `Simulasi ${i.nama}${i.ruang ? ' di ' + i.ruang : ''}`, atur_waktu: `Waktu ke ${fmtH(+i.jam || 0)}${i.hari ? ' ' + i.hari : ''}`, ganti_mode: `Mode ${i.mode}` }[name] || name; }
-
 // ================= detailed SketchUp model (bolon_015.glb, converted) =================
 const DET = { on: false, ready: false, meshes: [], mats: {}, grid: null, err: null, plants: null };
 const VEG = /Aesculus|Vegetation_Bark|^Material-1$|Fencing/i; // leaves, bark, vines, mesh fence: no collision, no x-ray
@@ -2308,6 +2192,7 @@ function setDetailed(on) {
   for (const m of DET.meshes) m.visible = on;
   for (const m of PROC.meshes) m.visible = !on;
   for (const s of SOLARMESH) s.visible = !on;
+  buildFacade(on);
   renderSide();
 }
 function collectProc() { // simple-model meshes that the detailed model replaces
@@ -2316,12 +2201,494 @@ function collectProc() { // simple-model meshes that the detailed model replaces
 }
 const PROC_EXTRA = [];
 
+// ================= facade lighting on every building corner (night) =================
+// footprint [id, x0, z0, x1, z1, height] read from the plans; refined against the SketchUp geometry when it is loaded
+const FAC_BLD = [
+  ['asrama1', 7.4, .6, 12.4, 11.3, 6.1], ['asrama2', 13.7, .6, 18.7, 11.3, 6.1], ['asrama3', 20.0, .6, 25.0, 11.3, 6.1], ['asrama4', 26.4, .6, 31.4, 11.3, 6.1],
+  ['servis', 24.3, 14.8, 32.0, 23.6, 6.1], ['kantor', 5.6, 16.2, 23.6, 37.6, 6.1], ['admin', 23.6, 23.6, 32.0, 44.8, 7.1], ['bisnis', 20.6, 48.6, 29.4, 65.0, 6.9],
+  ['satpam', 16.3, 65.8, 19.3, 69.6, 3.0], ['transit', 2.6, 66.4, 9.4, 106.0, 9.9], ['parkir', 16.4, 70.0, 31.6, 106.0, 11.0], ['masjid', 15.6, 115.6, 29.6, 130.6, 8.2], ['wudhu', 9.4, 119.8, 12.6, 127.2, 3.0],
+];
+const FAC = { mode: 'auto', theme: 'warm', level: 0, target: 0, group: new THREE.Group(), corners: [], meshes: null, lastAuto: null, kw: 0 };
+fx.add(FAC.group);
+const FAC_THEMES = { warm: '#ffc27a', teal: '#3fe1e6', putih: '#e9f2ff', dinamis: null };
+const FAC_THEME_NAME = { warm: 'Hangat', teal: 'Teal PHICOS', putih: 'Putih sejuk', dinamis: 'Dinamis' };
+// scallop texture: the classic uplight shape thrown on a wall, brightest at the foot of the corner
+const SCALLOP = (() => { const W = 96, H = 256, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'), im = g.createImageData(W, H);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) { const u = i / (W - 1), v = 1 - j / (H - 1);
+    const sig = .1 + .42 * Math.pow(v, .8), core = Math.exp(-Math.pow((u - .06) / sig, 2)), fall = Math.pow(1 - v, 1.25) * (v < .03 ? v / .03 : 1);
+    const edge = Math.exp(-Math.pow(u / .05, 2)) * Math.pow(1 - v, .6) * .55; const a = clamp(core * fall + edge, 0, 1);
+    const k = (j * W + i) * 4; im.data[k] = im.data[k + 1] = im.data[k + 2] = Math.round(a * 255); im.data[k + 3] = 255; }
+  g.putImageData(im, 0, 0); const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t; })();
+// ---------- geometry helpers ----------
+function rayDistGLB(x, y, z, dx, dz, max) { // nearest wall hit along a horizontal ray, using the collision grid
+  if (!DET.grid) return Infinity; const T = DET.grid.tri, NY = DET.grid.ny, seen = new Set(); let best = Infinity;
+  for (let s = 0; s <= max + GC; s += GC * .5) { const c = cellOf(x + dx * s, z + dz * s); if (!c) continue;
+    for (const t of c) { if (seen.has(t) || NY[t] > .7) continue; seen.add(t); const o = t * 9;
+      _e1.set(T[o + 3] - T[o], T[o + 4] - T[o + 1], T[o + 5] - T[o + 2]); _e2.set(T[o + 6] - T[o], T[o + 7] - T[o + 1], T[o + 8] - T[o + 2]); _d.set(dx, 0, dz); _pv.crossVectors(_d, _e2);
+      const det = _e1.dot(_pv); if (Math.abs(det) < 1e-8) continue; const inv = 1 / det; _tv.set(x - T[o], y - T[o + 1], z - T[o + 2]); const u = _tv.dot(_pv) * inv; if (u < 0 || u > 1) continue;
+      _qv.crossVectors(_tv, _e1); const v = _d.dot(_qv) * inv; if (v < 0 || u + v > 1) continue; const tt = _e2.dot(_qv) * inv; if (tt > 0 && tt < best) best = tt; } }
+  return best <= max ? best : Infinity;
+}
+function facadeCorners(useGLB) {
+  const out = [];
+  for (const [id, x0, z0, x1, z1, H0] of FAC_BLD) for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    let cx = sx < 0 ? x0 : x1, cz = sz < 0 ? z0 : z1, H = H0;
+    if (useGLB && DET.grid) {
+      const ys = H0 > 6 ? 4.6 : 1.4;
+      const O = .6; // probe starts just outside the plan line so it cannot reach a neighbouring mass (dorm gaps are 1.3 m)
+      const dz = rayDistGLB(cx - sx * 1.2, ys, cz + sz * O, 0, -sz, 1.8); if (dz < Infinity) cz = cz + sz * O - sz * dz;
+      const dx = rayDistGLB(cx + sx * O, ys, cz - sz * 1.2, -sx, 0, 1.8); if (dx < Infinity) cx = cx + sx * O - sx * dx;
+      const tops = floorsGLB(cx - sx * .6, cz - sz * .6).filter(y => y < 14); if (tops.length) { const t = Math.max(...tops); if (t > 2.2) H = t + .9; }
+    }
+    const g = useGLB && DET.grid ? floorsGLB(cx + sx * .5, cz + sz * .5).filter(y => y < 1.5) : []; const gy = g.length ? Math.max(...g) : 0;
+    out.push({ id, x: cx, z: cz, sx, sz, H: Math.max(2.6, H - gy), gy, w: Math.min(4.2, Math.abs(x1 - x0) * .45), d: Math.min(4.2, Math.abs(z1 - z0) * .45) });
+  }
+  return out;
+}
+// ---------- build instanced pieces ----------
+function buildFacade(useGLB) {
+  if (FAC.meshes) { for (const m of FAC.meshes.all) { FAC.group.remove(m); m.geometry.dispose(); } }
+  const C = FAC.corners = facadeCorners(useGLB), n = C.length;
+  const add = (o) => { o.renderOrder = 7; o.frustumCulled = false; FAC.group.add(o); return o; };
+  const addMat = (extra) => new THREE.MeshBasicMaterial(Object.assign({ color: '#ffffff', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }, extra));
+  // wash planes (2 per corner)
+  const wg = new THREE.PlaneGeometry(1, 1); wg.translate(.5, .5, 0);
+  const wash = add(new THREE.InstancedMesh(wg, addMat({ map: SCALLOP }), n * 2));
+  // volumetric beams
+  const bg = new THREE.CylinderGeometry(1, .07, 1, 18, 1, true); bg.translate(0, .5, 0); const bc = []; const bp = bg.attributes.position;
+  for (let i = 0; i < bp.count; i++) { const k = bp.getY(i) > .5 ? 0 : 1; bc.push(k, k, k); } bg.setAttribute('color', new THREE.Float32BufferAttribute(bc, 3));
+  const beam = add(new THREE.InstancedMesh(bg, addMat({ vertexColors: true }), n));
+  // LED strips on the vertical edge, fixtures at the foot, light pools on the ground
+  const strip = add(new THREE.InstancedMesh(new THREE.BoxGeometry(.07, 1, .07).translate(0, .5, 0), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }), n));
+  const fix = add(new THREE.InstancedMesh(new THREE.BoxGeometry(.3, .16, .3).translate(0, .08, 0), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }), n));
+  const pg = new THREE.CircleGeometry(1, 24); pg.rotateX(-Math.PI / 2);
+  const pool = add(new THREE.InstancedMesh(pg, addMat({ map: SPRITE }), n));
+  // halos at foot and top of every corner
+  const hg = new THREE.BufferGeometry(), hp = new Float32Array(n * 6), hc = new Float32Array(n * 6);
+  hg.setAttribute('position', new THREE.BufferAttribute(hp, 3)); hg.setAttribute('color', new THREE.BufferAttribute(hc, 3));
+  const halo = add(new THREE.Points(hg, new THREE.PointsMaterial({ size: 2.9, map: SPRITE, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+  const m4 = new THREE.Matrix4(), X = new V3(), Y = new V3(), Z = new V3(), q = new THREE.Quaternion(), p = new V3(), s = new V3(), e = new THREE.Euler();
+  C.forEach((c, i) => {
+    const off = .07;
+    // wash on the face that runs along x (outward normal = sz on z), then on the face along z (outward = sx on x)
+    X.set(-c.sx * c.w, 0, 0); Y.set(0, c.H, 0); Z.set(0, 0, c.sz); m4.makeBasis(X, Y, Z); m4.setPosition(c.x, c.gy, c.z + c.sz * off); wash.setMatrixAt(i * 2, m4);
+    X.set(0, 0, -c.sz * c.d); Z.set(c.sx, 0, 0); m4.makeBasis(X, Y, Z); m4.setPosition(c.x + c.sx * off, c.gy, c.z); wash.setMatrixAt(i * 2 + 1, m4);
+    // beam leans slightly into the corner
+    const fx_ = c.x + c.sx * .45, fz = c.z + c.sz * .45; e.set(-c.sz * .09, 0, c.sx * .09); q.setFromEuler(e); s.set(Math.min(1.5, c.H * .18), c.H * .92, Math.min(1.5, c.H * .18));
+    p.set(fx_, c.gy + .12, fz); m4.compose(p, q, s); beam.setMatrixAt(i, m4);
+    q.identity(); p.set(c.x + c.sx * .06, c.gy, c.z + c.sz * .06); s.set(1, c.H, 1); m4.compose(p, q, s); strip.setMatrixAt(i, m4);
+    p.set(fx_, c.gy, fz); s.set(1, 1, 1); m4.compose(p, q, s); fix.setMatrixAt(i, m4);
+    p.set(fx_, c.gy + .07, fz); s.set(2.3, 1, 2.3); m4.compose(p, q, s); pool.setMatrixAt(i, m4);
+    hp.set([fx_, c.gy + .35, fz, c.x + c.sx * .08, c.gy + c.H, c.z + c.sz * .08], i * 6);
+  });
+  for (const m of [wash, beam, strip, fix, pool]) { m.instanceMatrix.needsUpdate = true; m.setColorAt(0, new THREE.Color(0, 0, 0)); }
+  FAC.meshes = { wash, beam, strip, fix, pool, halo, all: [wash, beam, strip, fix, pool, halo] };
+  FAC.dirty = true;
+}
+// ---------- smart control ----------
+const _fc = new THREE.Color(), _fc2 = new THREE.Color(), _fc3 = new THREE.Color(), _dark = new THREE.Color('#3a4044');
+function facadeAuto(N) {
+  const h = SIM.h; if (N < .12 || !RULES.fasad.on) return 0; // daylight sensor + rule switch
+  return (h >= 23.5 || h < 5) ? .35 : 1; // energy-saving dim after 23:30
+}
+function updateFacade(dt, N, t) {
+  if (!FAC.meshes) return;
+  const auto = facadeAuto(N);
+  if (FAC.mode === 'auto' && FAC.lastAuto !== null && auto !== FAC.lastAuto && !SIM.active) {
+    logEv(auto === 1 ? 'Sensor cahaya senja: lampu fasad 52 sudut menyala otomatis' : auto > 0 ? 'Mode hemat 23:30: lampu fasad diredupkan ke 35%' : 'Pagi: lampu fasad dimatikan otomatis', 'o');
+  }
+  FAC.lastAuto = auto;
+  let target = FAC.mode === 'on' ? 1 : FAC.mode === 'off' ? 0 : auto;
+  const alarm = SIM.active === 'evakuasi' && FIRE.on, intr = SECURITY.alarm;
+  if (alarm || intr) target = 1;
+  FAC.level += (target - FAC.level) * Math.min(1, dt * 2.2);
+  const L = FAC.level, vis = L > .004 && fx.visible; FAC.group.visible = vis;
+  FAC.kw = L * FAC.corners.length * .085; // ~85 W of fittings per corner
+  if (!vis) return;
+  const M = FAC.meshes, C = FAC.corners, theme = FAC_THEMES[FAC.theme], hc = M.halo.geometry.attributes.color;
+  for (let i = 0; i < C.length; i++) {
+    const c = C[i];
+    if (alarm) _fc.set('#ff3b24').multiplyScalar(.55 + .45 * Math.max(0, Math.sin(t * 7 - c.z * .08)));
+    else if (intr) _fc.set('#f2f6ff').multiplyScalar(1.2);
+    else if (!theme) _fc.setHSL(((t * .045 + c.z * .006 + (c.sx + 1) * .04) % 1 + 1) % 1, .78, .58);
+    else _fc.set(theme);
+    _fc.multiplyScalar(L);
+    _fc2.copy(_fc).multiplyScalar(1.05); M.wash.setColorAt(i * 2, _fc2); M.wash.setColorAt(i * 2 + 1, _fc2);
+    _fc2.copy(_fc).multiplyScalar(.27); M.beam.setColorAt(i, _fc2);
+    _fc2.copy(_fc).multiplyScalar(.42); M.pool.setColorAt(i, _fc2);
+    _fc3.copy(_fc).multiplyScalar(1.6 / Math.max(.2, L)); _fc2.copy(_dark).lerp(_fc3, Math.min(1, L * 1.4)); M.strip.setColorAt(i, _fc2); M.fix.setColorAt(i, _fc2);
+    hc.setXYZ(i * 2, _fc.r * .9, _fc.g * .9, _fc.b * .9); hc.setXYZ(i * 2 + 1, _fc.r * .55, _fc.g * .55, _fc.b * .55);
+  }
+  for (const m of [M.wash, M.beam, M.strip, M.fix, M.pool]) m.instanceColor.needsUpdate = true; hc.needsUpdate = true;
+}
+function setFacade(mode, theme) {
+  if (mode) FAC.mode = mode; if (theme) FAC.theme = theme;
+  logEv(`Lampu fasad: ${{ auto: 'otomatis', on: 'dinyalakan', off: 'dimatikan' }[FAC.mode]}, warna ${FAC_THEME_NAME[FAC.theme]}`, '');
+  renderSide();
+}
+function facadeControlsHTML() {
+  return `<h3>Lampu fasad di setiap sudut</h3>
+    <div class="seg" role="group" aria-label="Mode lampu fasad">${['auto', 'on', 'off'].map(v => `<button data-fmode="${v}" aria-pressed="${FAC.mode === v}">${{ auto: 'Otomatis', on: 'Nyala', off: 'Mati' }[v]}</button>`).join('')}</div>
+    <div class="row" style="margin-top:8px" role="group" aria-label="Warna lampu fasad">${Object.keys(FAC_THEMES).map(k => `<button class="chip" data-ftheme="${k}" aria-pressed="${FAC.theme === k}">${FAC_THEME_NAME[k]}</button>`).join('')}</div>
+    <p class="note" style="margin-top:10px">${FAC.corners.length} sudut, masing-masing dengan lampu sorot tanah, sapuan cahaya di dinding, dan strip LED di rusuknya. Mode otomatis menyala saat senja dan meredup ke 35% setelah 23:30.</p>
+    <button class="btn ghost wide" data-nightview>Lihat suasana malam</button>`;
+}
+function nightView() {
+  SIM.h = 19.4; simTick(1, true); renderClock();
+  if (MODE === 'jelajah') { goStop('halaman'); return; }
+  if (MODE !== 'orbit' && MODE !== 'monitor') setMode('orbit');
+  CAMCTL.idle = -4; flyTo({ target: [17, 3, 58], theta: -2.62, phi: 1.12, r: 95, fov: 42 }, 1.6);
+}
+
+// ================= smart building integration =================
+const INTEG = { src: 'sim', status: 'idle', msg: '', inMsgs: 0, outMsgs: 0, client: null, timer: null, pubSim: false, pubTimer: null,
+  cfg: { mqtt: { url: 'wss://broker.hivemq.com:8884/mqtt', user: '', pass: '', prefix: 'phicos/bolon' }, ha: { url: 'http://homeassistant.local:8123', token: '' }, rest: { url: 'https://contoh-server.id/phicos/state', every: 10 } } };
+const SRC_NAME = { sim: 'Simulasi', mqtt: 'MQTT', ha: 'Home Assistant', rest: 'REST / Node-RED' };
+// automation rules: each one changes how the simulated building behaves
+const RULES = {
+  kosong: { on: true, name: 'Ruang kosong → lampu & AC mati', desc: 'Sensor kehadiran mematikan lampu dan AC 10 menit setelah ruang kosong.' },
+  daylight: { on: true, name: 'Pemanenan cahaya siang', desc: 'Lampu meredup otomatis saat cahaya matahari cukup.' },
+  co2: { on: true, name: 'CO₂ > 1000 ppm → ventilasi naik', desc: 'Kipas udara segar menyala saat ruang mulai pengap.' },
+  precool: { on: true, name: 'Pre-cooling masjid sebelum salat', desc: 'AC masjid menyala 25 menit sebelum waktu salat.' },
+  pompa: { on: true, name: 'Tandon < 35% → pompa nyala', desc: 'Pompa mengisi tandon sampai 92%.' },
+  malam: { on: true, name: 'Mode malam 22:00 → kunci akses', desc: 'Pintu akses terkunci, CCTV ke deteksi gerak.' },
+  fasad: { on: true, name: 'Senja → lampu fasad', desc: 'Lampu di 52 sudut menyala saat senja, meredup 23:30.' },
+};
+const WORKTYPES = new Set(['office', 'class', 'studio', 'meeting', 'lobby', 'dining']);
+// ---------- subsystem map (what a real BMS would wire up) ----------
+function subsystems() {
+  const live = INTEG.status === 'ok', st = live ? 'live' : 'sim';
+  const nAC = ROOMS.filter(r => AC_TYPES.has(r.type) && !r.zoneOnly).length, nL = ROOMS.filter(r => !r.zoneOnly).length, nS = ROOMS.filter(r => r.type !== 'planned').length;
+  return [
+    ['HVAC — AC VRF', 'BACnet/IP', `${nAC} unit indoor`, st], ['Pencahayaan', 'DALI-2', `${nL} ruang + ${FAC.corners.length} sudut fasad`, st],
+    ['Sensor lingkungan', 'Zigbee 3.0 → MQTT', `${nS} zona × suhu, RH, CO₂, kehadiran`, st], ['Energi & surya', 'Modbus TCP / SunSpec', `meter PLN, 13 sub-meter, ${(((DET.on && DET.solarCount) || SOLAR.length) * .45).toFixed(0)} kWp`, st],
+    ['Air bersih', 'Modbus RTU', '2 tandon ± 33 m³, pompa', st], ['Keamanan', 'ONVIF / Wiegand', '10 CCTV, pintu brankas, gerbang ANPR', 'sim'],
+    ['Parkir', 'LoRaWAN', '166 sensor slot motor', 'sim'], ['Hidroponik', 'MQTT', 'pH, EC, suhu air, pompa NFT', st], ['Lift (rencana)', 'BACnet/IP', '1 unit, 3 lantai', 'plan'],
+  ];
+}
+// ---------- point list (CSV) & Home Assistant config ----------
+const POINTS = [['suhu', '°C', 'sensor', 'Zigbee 3.0 via gateway → MQTT'], ['kelembapan', '%RH', 'sensor', 'Zigbee 3.0 via gateway → MQTT'], ['co2', 'ppm', 'sensor', 'Zigbee 3.0 via gateway → MQTT'],
+  ['orang', 'orang', 'sensor', 'Sensor kehadiran mmWave → MQTT'], ['daya', 'kW', 'sensor', 'Modbus TCP sub-meter'], ['lampu', 'on/off/auto', 'aktuator', 'DALI-2'], ['ac', 'on/off/auto', 'aktuator', 'BACnet/IP'], ['setpoint', '°C', 'aktuator', 'BACnet/IP']];
+function pointListCSV() {
+  const P = INTEG.cfg.mqtt.prefix, rows = [['id_titik', 'ruang_id', 'nama_ruang', 'lantai', 'jenis', 'besaran', 'satuan', 'protokol', 'topik_mqtt', 'entity_home_assistant', 'objek_bacnet']];
+  let n = 1;
+  for (const r of ROOMS) { if (r.type === 'planned') continue;
+    for (const [b, u, j, pr] of POINTS) { if ((b === 'ac' || b === 'setpoint') && !AC_TYPES.has(r.type)) continue; if (b === 'lampu' && r.zoneOnly) continue;
+      const ent = j === 'sensor' ? `sensor.phicos_${r.id.toLowerCase()}_${b}` : b === 'lampu' ? `light.phicos_${r.id.toLowerCase()}` : `climate.phicos_${r.id.toLowerCase()}`;
+      rows.push([`P${String(n++).padStart(4, '0')}`, r.id, r.name, r.k + 1, j, b, u, pr, j === 'sensor' ? `${P}/${r.id}/state#${b}` : `${P}/${r.id}/set#${b}`, ent, pr.startsWith('BACnet') ? `${b === 'ac' ? 'BV' : 'AV'}:${1000 + n}` : '']); } }
+  for (const [b, u, pr] of [['daya_kampus', 'kW', 'Modbus TCP meter PLN'], ['surya', 'kW', 'SunSpec Modbus inverter'], ['tandon', '%', 'Modbus RTU sensor ultrasonik'], ['pompa', 'on/off', 'Modbus RTU relay'], ['ph', 'pH', 'MQTT'], ['ec', 'mS/cm', 'MQTT'], ['parkir_motor', 'slot', 'LoRaWAN'], ['lampu_fasad', 'on/off/auto', 'DALI-2']])
+    rows.push([`P${String(n++).padStart(4, '0')}`, 'site', 'Kampus', '-', /pompa|fasad/.test(b) ? 'aktuator' : 'sensor', b, u, pr, `${P}/site/state#${b}`, `sensor.phicos_site_${b}`, '']);
+  return rows.map(r => r.map(v => /[",;\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v).join(',')).join('\n');
+}
+function haConfig() {
+  const P = INTEG.cfg.mqtt.prefix; let y = `# Konfigurasi Home Assistant untuk kembaran digital PHICOS Bolon\n# Tempel ke configuration.yaml (ganti ekstensi file ini menjadi .yaml bila perlu).\n# Butuh integrasi MQTT di Home Assistant yang tersambung ke broker yang sama.\nmqtt:\n  sensor:\n`;
+  for (const r of ROOMS) { if (r.type === 'planned' || r.zoneOnly && r.type !== 'parking') continue; const id = r.id.toLowerCase();
+    for (const [b, u] of [['suhu', '°C'], ['co2', 'ppm'], ['orang', null], ['daya', 'kW']]) y += `    - name: "${r.name} ${b}"\n      unique_id: phicos_${id}_${b}\n      state_topic: "${P}/${r.id}/state"\n      value_template: "{{ value_json.${b} }}"\n${u ? `      unit_of_measurement: "${u}"\n` : ''}`; }
+  y += `  light:\n`; for (const r of ROOMS) { if (r.zoneOnly || r.type === 'planned') continue; y += `    - name: "Lampu ${r.name}"\n      unique_id: phicos_${r.id.toLowerCase()}_lampu\n      command_topic: "${P}/${r.id}/set"\n      payload_on: '{"lampu":"on"}'\n      payload_off: '{"lampu":"off"}'\n      state_topic: "${P}/${r.id}/state"\n      state_value_template: "{{ 'ON' if value_json.lampu > 0 else 'OFF' }}"\n`; }
+  y += `  climate:\n`; for (const r of ROOMS) { if (!AC_TYPES.has(r.type) || r.zoneOnly) continue; y += `    - name: "AC ${r.name}"\n      unique_id: phicos_${r.id.toLowerCase()}_ac\n      modes: ["off", "cool"]\n      mode_command_topic: "${P}/${r.id}/set"\n      mode_command_template: '{"ac":"{{ "off" if value == "off" else "on" }}"}'\n      temperature_command_topic: "${P}/${r.id}/set"\n      temperature_command_template: '{"setpoint":{{ value }}}'\n      current_temperature_topic: "${P}/${r.id}/state"\n      current_temperature_template: "{{ value_json.suhu }}"\n      min_temp: 18\n      max_temp: 30\n`; }
+  return y;
+}
+function sampleJSON() { const out = { keterangan: 'Format pesan untuk topik <prefix>/<ruang_id>/state (masuk) dan <prefix>/<ruang_id>/set (perintah). Endpoint REST mengembalikan objek rooms dengan isi yang sama.', prefix: INTEG.cfg.mqtt.prefix, contoh_state: {}, contoh_set: { lampu: 'on', ac: 'auto', setpoint: 24 }, rooms: {} };
+  for (const r of ROOMS) { if (r.type === 'planned') continue; out.rooms[r.id] = roomPayload(r); } out.contoh_state = out.rooms.holding; out.site = sitePayload(); return JSON.stringify(out, null, 2); }
+function roomPayload(r) { const s = r.s; return { suhu: +s.temp.toFixed(1), kelembapan: Math.round(s.hum), co2: Math.round(s.co2), orang: s.occ, daya: +s.kw.toFixed(2), lampu: +s.light.toFixed(2), ac: s.ac ? 'on' : 'off', setpoint: s.set, mode_lampu: s.lightMode, mode_ac: s.acMode }; }
+function sitePayload() { const K = SIM.kpi; return { daya_kampus: +K.power.toFixed(1), surya: +K.solar.toFixed(1), tandon: +SIM.tank.toFixed(0), pompa: SIM.pump, ph: +SIM.hyd.ph.toFixed(2), ec: +SIM.hyd.ec.toFixed(2), parkir_motor: K.moto, lampu_fasad: FAC.mode }; }
+async function saveText(filename, text, mime) {
+  try { if (window.claude && typeof window.claude.use === 'function') { const dl = await window.claude.use('downloads'); if (dl) { await dl.save({ filename, data: new Blob([text], { type: mime }) }); toast(`${filename} disimpan`); return; } } }
+  catch (e) { if (e && e.code === 'declined') return; if (e && e.code && e.code !== 'unavailable') { toast('File tidak bisa disimpan: ' + e.code); return; } }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+// ---------- incoming live data ----------
+function applyLive(id, obj) {
+  if (id === 'site') { INTEG.site = { t: performance.now(), v: obj }; return; }
+  const r = ROOM[id]; if (!r || !obj || typeof obj !== 'object') return;
+  r.live = { t: performance.now(), v: Object.assign((r.live && r.live.v) || {}, obj) }; INTEG.inMsgs++;
+}
+function liveOverride(r) { // called from simTick: real readings win over the simulation while fresh (5 min)
+  const L = r.live; if (!L || performance.now() - L.t > 300000) return false; const v = L.v, s = r.s;
+  if (isFinite(v.suhu)) s.temp = +v.suhu; if (isFinite(v.kelembapan)) s.hum = +v.kelembapan; if (isFinite(v.co2)) s.co2 = +v.co2; if (isFinite(v.orang)) s.occ = Math.max(0, Math.round(+v.orang));
+  if (isFinite(v.daya)) s.kw = +v.daya; if (v.lampu !== undefined && isFinite(+v.lampu)) s.light = clamp(+v.lampu); if (v.ac === 'on' || v.ac === 'off') s.ac = v.ac === 'on';
+  return true;
+}
+const liveCount = () => ROOMS.filter(r => r.live && performance.now() - r.live.t < 300000).length;
+// ---------- outgoing commands ----------
+function integCommand(r, cmd) {
+  if (INTEG.status !== 'ok') return; const body = cmd || { lampu: r.s.lightMode, ac: r.s.acMode, setpoint: r.s.set };
+  try {
+    if (INTEG.src === 'mqtt' && INTEG.client) { INTEG.client.publish(`${INTEG.cfg.mqtt.prefix}/${r.id}/set`, JSON.stringify(body)); INTEG.outMsgs++; }
+    if (INTEG.src === 'ha') { const C = INTEG.cfg.ha, id = r.id.toLowerCase(), h = { Authorization: 'Bearer ' + C.token, 'Content-Type': 'application/json' };
+      if (body.lampu && body.lampu !== 'auto') fetch(`${C.url}/api/services/light/turn_${body.lampu}`, { method: 'POST', headers: h, body: JSON.stringify({ entity_id: `light.phicos_${id}` }) });
+      if (body.ac === 'off') fetch(`${C.url}/api/services/climate/set_hvac_mode`, { method: 'POST', headers: h, body: JSON.stringify({ entity_id: `climate.phicos_${id}`, hvac_mode: 'off' }) });
+      else if (AC_TYPES.has(r.type)) fetch(`${C.url}/api/services/climate/set_temperature`, { method: 'POST', headers: h, body: JSON.stringify({ entity_id: `climate.phicos_${id}`, temperature: body.setpoint ?? r.s.set, hvac_mode: 'cool' }) });
+      INTEG.outMsgs++; }
+    if (INTEG.src === 'rest') { fetch(INTEG.cfg.rest.url.replace(/\/state\/?$/, '') + '/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ruang: r.id, ...body }) }); INTEG.outMsgs++; }
+    logEv(`Perintah dikirim ke ${SRC_NAME[INTEG.src]}: ${r.name} ${JSON.stringify(body)}`, '');
+  } catch (e) { logEv('Perintah gagal dikirim: ' + e.message, 'w'); }
+}
+// ---------- connectors ----------
+const BLOCKED_HINT = 'Di pratinjau claude.ai, koneksi ke server luar diblokir oleh keamanan halaman. Buka model ini dari situs Anda sendiri (misalnya GitHub Pages) dan pastikan server mengizinkan akses dari alamat situs itu (CORS / WebSocket).';
+function loadScript(src) { return new Promise((res, rej) => { if (window.mqtt) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('pustaka MQTT dari jsDelivr gagal dimuat — periksa koneksi internet')); document.head.appendChild(s); }); }
+function setStatus(st, msg) { INTEG.status = st; INTEG.msg = msg || ''; if (st === 'ok') logEv(`Integrasi ${SRC_NAME[INTEG.src]} terhubung`, 'o'); if (st === 'err') logEv(`Integrasi ${SRC_NAME[INTEG.src]} gagal: ${msg}`, 'w'); renderIntegCard(); renderSide(); }
+function disconnect() {
+  try { INTEG.client && INTEG.client.end(true); } catch (e) { } INTEG.client = null; clearInterval(INTEG.timer); clearInterval(INTEG.pubTimer); INTEG.timer = INTEG.pubTimer = null;
+  for (const r of ROOMS) r.live = null; INTEG.status = 'idle'; INTEG.msg = '';
+}
+async function connect() {
+  disconnect(); if (INTEG.src === 'sim') { renderIntegCard(); renderSide(); return; }
+  setStatus('wait', 'Menghubungkan…');
+  try {
+    if (INTEG.src === 'mqtt') {
+      const C = INTEG.cfg.mqtt; if (!/^wss?:\/\//.test(C.url)) throw new Error('alamat broker harus diawali ws:// atau wss://');
+      await loadScript('https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js');
+      const cl = window.mqtt.connect(C.url, { clientId: 'phicos-twin-' + Math.random().toString(16).slice(2, 8), username: C.user || undefined, password: C.pass || undefined, connectTimeout: 9000, reconnectPeriod: 0 });
+      INTEG.client = cl; let opened = false;
+      const to = setTimeout(() => { if (!opened) { try { cl.end(true); } catch (e) { } setStatus('err', 'broker tidak menjawab. ' + BLOCKED_HINT); } }, 10000);
+      cl.on('connect', () => { opened = true; clearTimeout(to); cl.subscribe(`${C.prefix}/+/state`); cl.subscribe(`${C.prefix}/+/+`); setStatus('ok', `Berlangganan ${C.prefix}/+/state`); startPub(); });
+      cl.on('message', (topic, payload) => { const parts = topic.slice(C.prefix.length + 1).split('/'); if (parts.length < 2 || parts[1] === 'set') return; const txt = payload.toString();
+        if (INTEG.pubSim && INTEG.echo && INTEG.echo.has(topic + txt)) return;
+        try { if (parts[1] === 'state') applyLive(parts[0], JSON.parse(txt)); else applyLive(parts[0], { [parts[1]]: isFinite(+txt) ? +txt : txt }); } catch (e) { } });
+      cl.on('error', e => { clearTimeout(to); setStatus('err', (e && e.message || 'koneksi ditolak') + '. ' + BLOCKED_HINT); });
+      cl.on('close', () => { if (INTEG.status === 'ok') setStatus('err', 'koneksi broker terputus'); });
+    }
+    if (INTEG.src === 'ha') {
+      const C = INTEG.cfg.ha; if (!C.token) throw new Error('isi Long-Lived Access Token dari profil Home Assistant');
+      const poll = async () => { const res = await fetch(`${C.url.replace(/\/$/, '')}/api/states`, { headers: { Authorization: 'Bearer ' + C.token } }); if (!res.ok) throw new Error('Home Assistant menjawab ' + res.status);
+        const list = await res.json(); let n = 0; const by = {};
+        for (const e of list) { const m = /^(sensor|light|climate)\.phicos_([a-z0-9]+?)(?:_(suhu|kelembapan|co2|orang|daya))?$/.exec(e.entity_id); if (!m) continue; const id = ROOMS.find(r => r.id.toLowerCase() === m[2]); if (!id) continue; n++;
+          const o = by[id.id] = by[id.id] || {}; if (m[1] === 'sensor' && m[3]) o[m[3]] = +e.state; if (m[1] === 'light') o.lampu = e.state === 'on' ? 1 : 0; if (m[1] === 'climate') { o.ac = e.state === 'off' ? 'off' : 'on'; if (isFinite(e.attributes?.current_temperature)) o.suhu = e.attributes.current_temperature; } }
+        for (const k in by) applyLive(k, by[k]); return n; };
+      const n = await poll(); setStatus('ok', `${n} entitas phicos_* ditemukan`); INTEG.timer = setInterval(() => poll().catch(e => setStatus('err', e.message)), 10000);
+    }
+    if (INTEG.src === 'rest') {
+      const C = INTEG.cfg.rest; const poll = async () => { const res = await fetch(C.url, { cache: 'no-store' }); if (!res.ok) throw new Error('server menjawab ' + res.status); const j = await res.json();
+        const rooms = j.rooms || j; let n = 0; for (const k in rooms) if (ROOM[k]) { applyLive(k, rooms[k]); n++; } if (j.site) applyLive('site', j.site); return n; };
+      const n = await poll(); setStatus('ok', `${n} ruang terbaca`); INTEG.timer = setInterval(() => poll().catch(e => setStatus('err', e.message)), Math.max(3, +C.every || 10) * 1000);
+    }
+  } catch (e) { const blocked = /fetch|network|Failed|blokir|Load failed/i.test(e.message || ''); setStatus('err', (e.message || String(e)) + (blocked ? '. ' + BLOCKED_HINT : '')); }
+}
+function startPub() { // test mode: the twin publishes its simulated readings as if it were the sensors
+  clearInterval(INTEG.pubTimer); if (!INTEG.pubSim || !INTEG.client) return; INTEG.echo = new Set();
+  INTEG.pubTimer = setInterval(() => { if (!INTEG.client) return; const P = INTEG.cfg.mqtt.prefix; INTEG.echo.clear();
+    for (const r of ROOMS) { if (r.type === 'planned') continue; const t = `${P}/${r.id}/state`, m = JSON.stringify(roomPayload(r)); INTEG.echo.add(t + m); INTEG.client.publish(t, m); INTEG.outMsgs++; }
+    INTEG.client.publish(`${P}/site/state`, JSON.stringify(sitePayload())); INTEG.outMsgs++; }, 5000);
+}
+// ---------- energy saved by the automation rules ----------
+function ruleWaste(r, h, dow, To, day) { // kW the room would use with the rules switched off (for the savings counter)
+  const s = r.s, work = dow >= 1 && dow <= 5 && h >= 7 && h < 18; let w = 0;
+  if (RULES.kosong.on && work && s.occ === 0 && WORKTYPES.has(r.type) && !r.zoneOnly) w += r.area * .1 * clamp((To - 24.5 + 5) / 9, .35, 1.3) + r.area * .009;
+  if (RULES.daylight.on && s.occ > 0 && !r.zoneOnly) w += r.area * .009 * clamp(day * .72, 0, .75);
+  return w;
+}
+// ---------- UI ----------
+function integSideHTML() {
+  const live = INTEG.status === 'ok', lc = liveCount();
+  return `<h3>Integrasi smart building</h3>
+    <div class="integ-src"><span class="dot ${live ? 'ok' : INTEG.status === 'err' ? 'err' : ''}"></span><span>Sumber data: <b>${SRC_NAME[INTEG.src]}</b>${live ? ` — ${lc} ruang live, ${INTEG.inMsgs} pesan masuk` : INTEG.status === 'err' ? ' — gagal terhubung' : ''}</span></div>
+    <ul class="subs">${subsystems().map(([n, p, d, st]) => `<li><span class="dot ${st === 'live' ? 'ok' : st === 'plan' ? 'plan' : ''}"></span><b>${n}</b><small>${p} · ${d}</small></li>`).join('')}</ul>
+    <button class="btn wide" data-integ>Atur koneksi & unduh peta titik</button>
+    <h3>Aturan otomasi</h3>
+    <div class="rules">${Object.entries(RULES).map(([k, R]) => `<label class="tog"><input type="checkbox" data-rule="${k}" ${R.on ? 'checked' : ''}><span><b>${R.name}</b><small>${R.desc}</small></span></label>`).join('')}</div>
+    <div class="note">Hemat dari otomasi hari ini: <b>${SIM.saveKwh.toFixed(0)} kWh</b> (± Rp ${Math.round(SIM.saveKwh * 1444.7).toLocaleString('id-ID')}, tarif bisnis perkiraan).</div>`;
+}
+function renderIntegCard() {
+  if (!UI.integ) return; const c = $('#card'), C = INTEG.cfg, src = INTEG.src, live = INTEG.status === 'ok';
+  c.style.display = 'block'; cardPos();
+  const fld = (id, label, val, type = 'text', ph = '') => `<div class="fld"><label for="${id}">${label}</label><input class="inp" id="${id}" type="${type}" value="${esc(val)}" placeholder="${esc(ph)}" autocomplete="off"></div>`;
+  let form = '';
+  if (src === 'sim') form = `<p class="note">Semua angka berasal dari simulasi kembaran digital. Pilih MQTT, Home Assistant, atau REST untuk menyambungkan sensor sungguhan.</p>`;
+  if (src === 'mqtt') form = fld('iqUrl', 'Alamat broker (WebSocket)', C.mqtt.url, 'text', 'wss://broker:8884/mqtt') + `<div class="row2">${fld('iqUser', 'Username', C.mqtt.user)}${fld('iqPass', 'Password', C.mqtt.pass, 'password')}</div>` + fld('iqPrefix', 'Awalan topik', C.mqtt.prefix)
+    + `<label class="tog"><input type="checkbox" id="iqPub" ${INTEG.pubSim ? 'checked' : ''}> Mode uji: kirim data simulasi ke broker tiap 5 detik</label>
+      <p class="note">Sensor mengirim JSON ke <code>${esc(C.mqtt.prefix)}/&lt;ruang&gt;/state</code>, contoh <code>{"suhu":24.6,"co2":640,"orang":12}</code>. Perintah dari model dikirim ke <code>…/&lt;ruang&gt;/set</code>. Broker bawaan adalah broker uji publik — jangan kirim data rahasia.</p>`;
+  if (src === 'ha') form = fld('iqHaUrl', 'Alamat Home Assistant', C.ha.url) + fld('iqHaTok', 'Long-Lived Access Token', C.ha.token, 'password', 'dari halaman Profil di Home Assistant')
+    + `<p class="note">Entitas dibaca dengan pola <code>sensor.phicos_&lt;ruang&gt;_suhu</code>, <code>light.phicos_&lt;ruang&gt;</code>, <code>climate.phicos_&lt;ruang&gt;</code>. Tambahkan alamat situs ini ke <code>http: cors_allowed_origins</code> di Home Assistant. Token hanya disimpan di memori halaman ini.</p>`;
+  if (src === 'rest') form = fld('iqRest', 'Endpoint status (GET, JSON)', C.rest.url) + fld('iqEvery', 'Interval baca (detik)', C.rest.every, 'number')
+    + `<p class="note">Endpoint mengembalikan <code>{"rooms":{"holding":{"suhu":24.5,…}}}</code>. Perintah dikirim dengan POST ke <code>…/cmd</code>. Cocok untuk Node-RED atau gateway BMS.</p>`;
+  c.innerHTML = `<button class="ib x" aria-label="Tutup">✕</button><h3>Integrasi smart building</h3><div class="sub">Sambungkan model ke sensor dan perangkat sungguhan</div>
+    <div class="row" role="group" aria-label="Sumber data">${Object.keys(SRC_NAME).map(k => `<button class="chip" data-src="${k}" aria-pressed="${src === k}">${SRC_NAME[k]}</button>`).join('')}</div>
+    ${form}
+    ${src !== 'sim' ? `<div class="row" style="margin:8px 0"><button class="btn" data-connect>${live ? 'Sambung ulang' : 'Hubungkan'}</button>${INTEG.status !== 'idle' ? `<button class="btn ghost" data-disconnect>Putuskan</button>` : ''}</div>` : ''}
+    ${INTEG.status !== 'idle' && src !== 'sim' ? `<div class="istat ${INTEG.status}">${INTEG.status === 'ok' ? 'Terhubung' : INTEG.status === 'wait' ? 'Menghubungkan' : 'Gagal'}${INTEG.msg ? ': ' + esc(INTEG.msg) : ''}${live ? `<br>${INTEG.inMsgs} pesan masuk, ${INTEG.outMsgs} keluar, ${liveCount()} ruang memakai data live` : ''}</div>` : ''}
+    <h4>Untuk teknisi</h4>
+    <div class="row"><button class="btn ghost" data-dl="csv">Peta titik (CSV)</button><button class="btn ghost" data-dl="ha">Konfigurasi Home Assistant</button><button class="btn ghost" data-dl="json">Contoh data (JSON)</button></div>
+    <p class="note">Peta titik berisi ${pointListCSV().split('\n').length - 1} titik data: topik MQTT, entitas Home Assistant, dan objek BACnet untuk setiap ruang.</p>`;
+}
+function openInteg() { UI.integ = true; UI.sel = null; UI.selB = null; document.body.classList.add('has-sel'); renderIntegCard(); }
+$('#card').addEventListener('click', e => {
+  const t = e.target.closest('button'); if (!t || !UI.integ) return;
+  if (t.classList.contains('x')) { UI.integ = false; return; }
+  readIntegForm();
+  if (t.dataset.src) { if (INTEG.src !== t.dataset.src) disconnect(); INTEG.src = t.dataset.src; renderIntegCard(); renderSide(); }
+  if (t.hasAttribute('data-connect')) connect();
+  if (t.hasAttribute('data-disconnect')) { disconnect(); logEv('Integrasi diputus — kembali ke data simulasi', ''); renderIntegCard(); renderSide(); }
+  if (t.dataset.dl === 'csv') saveText('phicos-bolon-peta-titik.csv', '\ufeff' + pointListCSV(), 'text/csv');
+  if (t.dataset.dl === 'ha') saveText('phicos-bolon-homeassistant-yaml.txt', haConfig(), 'text/plain');
+  if (t.dataset.dl === 'json') saveText('phicos-bolon-format-data.json', sampleJSON(), 'application/json');
+}, true);
+$('#card').addEventListener('change', e => { if (e.target.id === 'iqPub') { INTEG.pubSim = e.target.checked; startPub(); } });
+function readIntegForm() { const v = id => { const el = $('#' + id); return el ? el.value.trim() : null; }; const C = INTEG.cfg;
+  if (v('iqUrl') !== null) { C.mqtt.url = v('iqUrl'); C.mqtt.user = v('iqUser'); C.mqtt.pass = v('iqPass'); C.mqtt.prefix = (v('iqPrefix') || 'phicos/bolon').replace(/\/+$/, ''); }
+  if (v('iqHaUrl') !== null) { C.ha.url = v('iqHaUrl'); C.ha.token = v('iqHaTok'); }
+  if (v('iqRest') !== null) { C.rest.url = v('iqRest'); C.rest.every = +v('iqEvery') || 10; } }
+
+// ================= assistant: shared actions =================
+const STOPW = new Set(['nyalakan', 'hidupkan', 'matikan', 'padamkan', 'nyala', 'mati', 'hidup', 'lampu', 'lampunya', 'di', 'ke', 'yang', 'dan', 'tolong', 'semua', 'seluruh', 'atur', 'set', 'derajat', 'suhu', 'jadi', 'menjadi', 'bawa', 'saya', 'aku', 'pergi',
+  'lihat', 'tunjukkan', 'dong', 'ya', 'mohon', 'ruangan', 'acnya', 'pendingin', 'udara', 'simulasi', 'simulasikan', 'jalankan', 'mulai', 'lantai', 'tempat', 'antar', 'masuk', 'buka', 'tampilkan', 'kamera', 'sekarang', 'untuk', 'pada', 'dari', 'ini', 'itu', 'gedung', 'the', 'please', 'turn', 'on', 'off', 'aktifkan', 'nonaktifkan', 'kebakaran', 'evakuasi', 'api', 'sumber']);
+const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9.,° ]+/g, ' ').replace(/\s+/g, ' ').trim();
+function findRooms(q) {
+  q = norm(q); const lv = q.match(/(?:lantai|lt\.?)\s*(\d)/); const all = /(semua|seluruh)/.test(q);
+  let list = ROOMS.filter(r => r.type !== 'planned'); if (lv) list = list.filter(r => r.k === +lv[1] - 1);
+  const toks = q.split(' ').filter(w => w.length > 2 && !STOPW.has(w) && !/^[\d.,]+$/.test(w) && w !== 'lt');
+  if (!toks.length) return (all || lv) ? list : [];
+  let best = 0, out = [];
+  for (const r of list) { const hay = norm(`${r.name} ${r.id} ${r.bld} ${TYPE_LABEL[r.type]}`); let sc = 0; for (const t of toks) if (hay.includes(t)) sc++; if (sc > best) { best = sc; out = [r]; } else if (sc === best && sc > 0) out.push(r); }
+  return best ? out : (all ? list : []);
+}
+function findPlace(q) {
+  q = norm(q); const toks = q.split(' ').filter(w => w.length > 2 && !STOPW.has(w)); if (!toks.length) return null;
+  let best = null, bs = 0;
+  const cand = [...STOPS.filter(s => s.id[0] !== '_').map(s => ({ kind: 'stop', id: s.id, name: s.name, hay: norm(s.id + ' ' + s.name + ' ' + s.sub) })),
+    ...BLDG.map(b => ({ kind: 'bld', id: b.id, name: b.name, hay: norm(b.id + ' ' + b.name) })), ...ROOMS.filter(r => r.type !== 'planned').map(r => ({ kind: 'room', id: r.id, name: r.name, hay: norm(r.id + ' ' + r.name) }))];
+  for (const c of cand) { let sc = 0; for (const t of toks) if (c.hay.includes(t)) sc += t.length > 4 ? 1.2 : 1; if (c.kind === 'stop') sc += .05; if (sc > bs) { bs = sc; best = c; } }
+  return bs >= 1 ? best : null;
+}
+const API = {
+  rule(name, on) { const q = norm(name); const k = Object.keys(RULES).find(k => q.includes(k) || norm(RULES[k].name).split(' ').filter(w => w.length > 3).some(w => q.includes(w))); if (!k) throw new Error('Aturan tidak dikenal: ' + name);
+    RULES[k].on = !!on; logEv(`Aturan “${RULES[k].name}” ${on ? 'diaktifkan' : 'dinonaktifkan'}`, on ? 'o' : 'w'); simTick(.001); if (MODE === 'monitor') renderSide(); return { ok: true, aturan: RULES[k].name, aktif: !!on }; },
+  lights(q, on) { const rs = findRooms(q).filter(r => !r.zoneOnly); if (!rs.length) throw new Error('Ruang tidak ditemukan: ' + q);
+    const mode = on === null || on === undefined ? 'auto' : on ? 'on' : 'off'; rs.forEach(r => r.s.lightMode = mode); simTick(.001);
+    rs.slice(0, 24).forEach(r => integCommand(r)); const names = rs.length > 4 ? `${rs.length} ruang` : rs.map(r => r.name).join(', '); logEv(`Asisten: lampu ${names} ${mode === 'on' ? 'dinyalakan' : mode === 'off' ? 'dimatikan' : 'kembali otomatis'}`, '');
+    if (rs.length === 1 && MODE === 'monitor') selectRoom(rs[0]); refreshAfterAction(); return { ok: true, ruang: rs.map(r => r.name), mode }; },
+  ac(q, on, temp) { const rs = findRooms(q).filter(r => AC_TYPES.has(r.type)); if (!rs.length) throw new Error('Tidak ada ruang ber-AC yang cocok: ' + q);
+    rs.forEach(r => { if (on === false) r.s.acMode = 'off'; else { r.s.acMode = on === true || temp ? 'on' : 'auto'; if (temp) r.s.set = clamp(+temp, 18, 30); } }); simTick(.001); rs.slice(0, 24).forEach(r => integCommand(r));
+    logEv(`Asisten: AC ${rs.length > 4 ? rs.length + ' ruang' : rs.map(r => r.name).join(', ')} ${on === false ? 'dimatikan' : temp ? 'diatur ' + (+temp).toFixed(1) + '°C' : 'dinyalakan'}`, '');
+    if (rs.length === 1 && MODE === 'monitor') selectRoom(rs[0]); refreshAfterAction(); return { ok: true, ruang: rs.map(r => r.name), suhu: temp || null }; },
+  goto(q) { const p = findPlace(q); if (!p) throw new Error('Tempat tidak ditemukan: ' + q);
+    if (p.kind === 'stop') { if (MODE !== 'jelajah') setMode('jelajah', { stop: p.id }); else goStop(p.id); }
+    else if (p.kind === 'bld') { if (MODE === 'jelajah') goStop(BLD[p.id].stop); else { if (MODE !== 'orbit') setMode('orbit'); selectBuilding(BLD[p.id]); } }
+    else { const r = ROOM[p.id]; if (MODE === 'jelajah') enterRoom(r); else { if (MODE !== 'monitor') setMode('monitor'); selectRoom(r); } }
+    return { ok: true, tujuan: p.name }; },
+  sim(name, ruang) { const n = norm(name); const map = { evakuasi: 'evakuasi', kebakaran: 'evakuasi', jumat: 'jumat', penyusup: 'penyusup', keamanan: 'penyusup', hujan: 'hujan', harian: 'harian', '24': 'harian', stop: 'stop', hentikan: 'stop' };
+    const key = Object.keys(map).find(k => n.includes(k)); if (!key) throw new Error('Simulasi tidak dikenal: ' + name);
+    if (map[key] === 'stop') { if (SIM.rainTarget > .5 && !SIM.active) runSim('hujan'); return { ok: true, pesan: stopSim() }; }
+    const r = ruang ? findRooms(ruang)[0] : null; return { ok: true, pesan: runSim(map[key], r || undefined), sumberApi: r ? r.name : (map[key] === 'evakuasi' ? 'Pantry' : undefined) }; },
+  time(h, hari) { h = clamp(+h, 0, 23.99); if (isNaN(h)) throw new Error('Jam tidak valid'); SIM.h = h; if (hari) { const i = DAYS.findIndex(d => norm(d) === norm(hari)); if (i >= 0) SIM.dow = i; } simTick(1, true); renderClock(); refreshAfterAction(); return { ok: true, waktu: `${DAYS[SIM.dow]} ${fmtH(SIM.h)}` }; },
+  mode(m) { m = norm(m); const k = ['denah', 'rakit', 'orbit', 'jelajah', 'monitor'].find(x => m.includes(x)); if (!k) throw new Error('Mode tidak dikenal'); setMode(k); return { ok: true, mode: k }; },
+  facade(mode, warna) { const m = norm(mode || ''); const md = /mati|off/.test(m) ? 'off' : /otomatis|auto/.test(m) ? 'auto' : /nyala|on|hidup/.test(m) ? 'on' : null;
+    const w = norm(warna || ''); const th = /teal|phicos|cyan|hijau/.test(w) ? 'teal' : /hangat|kuning|warm/.test(w) ? 'warm' : /putih|sejuk|white/.test(w) ? 'putih' : /dinamis|pelangi|rgb|warna warni|berubah/.test(w) ? 'dinamis' : null;
+    if (!md && !th) throw new Error('Sebutkan mode (nyala/mati/otomatis) atau warna (hangat/teal/putih/dinamis)');
+    setFacade(md, th); if (md === 'on' || th) { if (sunInfo(SIM.h).elev > .05) nightView(); }
+    return { ok: true, mode: FAC.mode, warna: FAC_THEME_NAME[FAC.theme], sudut: FAC.corners.length }; },
+  status() { const K = SIM.kpi; return { waktu: `${DAYS[SIM.dow]} ${fmtH(SIM.h)}`, cuaca: SIM.rain > .5 ? 'hujan' : 'cerah', simulasi: SIM.active || 'tidak ada', daya_kW: +K.power.toFixed(1), surya_kW: +K.solar.toFixed(1), orang: K.people, suhu_dalam: +K.avgT.toFixed(1), suhu_luar: +K.To.toFixed(1), tandon_persen: +K.tank.toFixed(0), parkir_motor: `${K.moto}/166`, alarm: K.alarms, sumber_data: SRC_NAME[INTEG.src], ruang_live: liveCount(), hemat_otomasi_kwh_hari_ini: +SIM.saveKwh.toFixed(0), aturan: Object.fromEntries(Object.entries(RULES).map(([k, R]) => [k, R.on])),
+    ruang: ROOMS.filter(r => r.type !== 'planned').map(r => [r.id, r.name, 'Lt' + (r.k + 1), r.s.occ + '/' + r.cap, r.s.temp.toFixed(1) + 'C', Math.round(r.s.co2) + 'ppm', 'lampu ' + (r.s.light > 0 ? Math.round(r.s.light * 100) + '%' : 'mati'), AC_TYPES.has(r.type) ? 'AC ' + (r.s.ac ? 'nyala ' + r.s.set + 'C' : 'mati') : ''].join(' | ')) }; },
+};
+function refreshAfterAction() { renderKPI(); if (UI.sel) renderRoomCard(); }
+function statusLine() { const K = SIM.kpi; return `${DAYS[SIM.dow]} ${fmtH(SIM.h)}: daya ${K.power.toFixed(0)} kW, surya ${K.solar.toFixed(0)} kW, ${K.people} orang di kampus, suhu dalam rata-rata ${K.avgT.toFixed(1)}°C (luar ${K.To.toFixed(0)}°C), tandon ${K.tank.toFixed(0)}%, parkir motor ${K.moto}/166.`; }
+
+// ================= local command parser (works without Claude) =================
+function localCommand(text) {
+  const q = norm(text); let m;
+  try {
+    if (/(hentikan|stop|berhenti|akhiri)/.test(q)) return API.sim('stop').pesan + '.';
+    if (/(kebakaran|evakuasi|\bapi\b)/.test(q)) { const r = findRooms(q)[0]; API.sim('evakuasi', r ? r.id : null); return `Simulasi evakuasi dimulai, sumber api di ${r ? r.name : 'Pantry'}. Agen oranye menuju titik kumpul.`; }
+    if (/jum.?at/.test(q)) { API.sim('jumat'); return 'Simulasi salat Jumat dimulai pukul 11:21.'; }
+    if (/(penyusup|maling|pencuri|intrus|keamanan malam)/.test(q)) { API.sim('penyusup'); return 'Simulasi penyusup malam dimulai. Perhatikan kerucut CCTV.'; }
+    if (/hujan/.test(q)) { API.sim('hujan'); return SIM.rainTarget > .5 ? 'Hujan deras dimulai. Air hujan dipanen ke tandon.' : 'Hujan dihentikan.'; }
+    if (/(24 jam|sehari|satu hari|harian|time ?lapse)/.test(q)) { API.sim('harian'); return 'Time-lapse satu hari kerja dimulai dari 00:00.'; }
+    const on = /(nyalakan|hidupkan|\bnyala\b|\bhidup\b|aktifkan|\bon\b)/.test(q), off = /(matikan|padamkan|\bmati\b|nonaktifkan|\boff\b)/.test(q);
+    if (/(fasad|sudut|lampu luar|lampu eksterior|lampu gedung)/.test(q)) { const r = API.facade(off ? 'mati' : /otomatis/.test(q) ? 'otomatis' : on ? 'nyala' : '', q); return `Lampu fasad ${r.sudut} sudut: ${{ auto: 'otomatis', on: 'nyala', off: 'mati' }[r.mode]}, warna ${r.warna}.`; }
+    if (/(integrasi|mqtt|home assistant|bacnet|modbus|peta titik|node red)/.test(q)) { if (MODE !== 'monitor') setMode('monitor'); openInteg(); return 'Panel integrasi dibuka: pilih MQTT, Home Assistant, atau REST, lalu klik Hubungkan. Peta titik dan konfigurasi Home Assistant bisa diunduh di sana.'; }
+    if (/(aturan|otomasi)/.test(q) && (on || off)) { const k = Object.keys(RULES).find(k => q.includes(k) || (k === 'kosong' && /kosong/.test(q)) || (k === 'daylight' && /(cahaya siang|daylight|redup)/.test(q)) || (k === 'precool' && /(pre.?cool|masjid)/.test(q)) || (k === 'malam' && /(kunci|malam)/.test(q)) || (k === 'fasad' && /fasad/.test(q)) || (k === 'pompa' && /(pompa|tandon)/.test(q)) || (k === 'co2' && /(co2|ventilasi)/.test(q)));
+      if (k) { const r = API.rule(k, !off); return `Aturan “${r.aturan}” ${r.aktif ? 'diaktifkan' : 'dinonaktifkan'}. Lihat dampaknya di angka hemat energi panel Monitor.`; } }
+    if (/(suasana malam|lihat malam|mode malam)/.test(q)) { nightView(); return 'Waktu dipindah ke 19:24 — lampu fasad di setiap sudut bangunan menyala.'; }
+    if (/lampu/.test(q) && (on || off || /otomatis/.test(q))) { const r = API.lights(q, /otomatis/.test(q) ? null : !off); return `Lampu ${r.ruang.length > 4 ? r.ruang.length + ' ruang' : r.ruang.join(', ')} ${r.mode === 'on' ? 'dinyalakan' : r.mode === 'off' ? 'dimatikan' : 'kembali ke mode otomatis'}.`; }
+    if (/(\bac\b|pendingin)/.test(q)) { m = q.match(/(\d{2}(?:[.,]\d)?)\s*(?:derajat|°|c\b)?/); const t = m ? parseFloat(m[1].replace(',', '.')) : null;
+      const r = API.ac(q, off ? false : true, off ? null : t); return `AC ${r.ruang.length > 4 ? r.ruang.length + ' ruang' : r.ruang.join(', ')} ${off ? 'dimatikan' : t ? 'diatur ke ' + t + '°C' : 'dinyalakan'}.`; }
+    if ((m = q.match(/jam\s*(\d{1,2})(?:[.:](\d{2}))?/)) && /(atur|ubah|pindah|set|jadikan|lompat|ganti|ke)/.test(q)) { let h = +m[1] + (m[2] ? +m[2] / 60 : 0); if (/(malam|sore)/.test(q) && h < 12) h += 12; const d = DAYS.find(d => q.includes(norm(d))); const r = API.time(h, d); return `Waktu simulasi sekarang ${r.waktu}.`; }
+    if ((m = q.match(/(denah|rakit|orbit|jelajah|monitor)/)) && /(mode|tampilan|buka|ganti|pindah)/.test(q)) { API.mode(m[1]); return `Tampilan diganti ke mode ${m[1]}.`; }
+    if (/(\bke\b|pergi|bawa|tunjukkan|lihat|antar|masuk|terbang|zoom)/.test(q)) { const p = findPlace(q); if (p) { API.goto(q); return `Menuju ${p.name}.`; } }
+    if (/(daya|listrik|energi|surya|solar|orang|suhu|panas|tandon|air|parkir|status|berapa|kondisi|ringkas)/.test(q)) {
+      if (/(panas|terpanas|tertinggi)/.test(q)) { const occ = ROOMS.filter(r => AC_TYPES.has(r.type) && !r.zoneOnly && r.s.occ > 0); const r = (occ.length ? occ : ROOMS.filter(r => !r.zoneOnly)).sort((a, b) => b.s.temp - a.s.temp)[0]; return `Ruang berpenghuni terpanas: ${r.name}, ${r.s.temp.toFixed(1)}°C dengan ${r.s.occ} orang. ` + statusLine(); }
+      if (/(ramai|penuh|terpadat)/.test(q)) { const r = ROOMS.filter(r => r.cap && r.type !== 'parking').sort((a, b) => b.s.occ / b.cap - a.s.occ / a.cap)[0]; return `Ruang terpadat: ${r.name}, ${r.s.occ} dari ${r.cap} orang.`; }
+      return statusLine(); }
+  } catch (e) { return e.message + '. Coba sebut nama ruang seperti di daftar, misalnya “Ruang Kerja Holding” atau “Asrama”.'; }
+  return null;
+}
+
+// ================= Claude via the sample capability =================
+const AIS = { sample: null, tools: false, turns: [], busy: false, ctl: null, ready: false };
+const AI_TOOLS = [
+  { name: 'lihat_status', description: 'Membaca keadaan kampus sekarang: waktu, daya, surya, jumlah orang, tandon, parkir, dan status setiap ruang (id | nama | lantai | orang/kapasitas | suhu | CO2 | lampu | AC).', execute: () => API.status() },
+  { name: 'atur_lampu', description: 'Menyalakan, mematikan, atau mengembalikan ke otomatis lampu satu atau banyak ruang. ruang = id/nama ruang, nama gedung, atau "semua lantai 2". nyala true/false, atau null untuk otomatis.',
+    inputSchema: { type: 'object', properties: { ruang: { type: 'string' }, nyala: { type: ['boolean', 'null'] } }, required: ['ruang'] }, execute: i => API.lights(String(i.ruang), i.nyala === undefined ? true : i.nyala) },
+  { name: 'atur_ac', description: 'Mengatur AC ruang: nyala true/false dan suhu setelan opsional (18–30 °C).',
+    inputSchema: { type: 'object', properties: { ruang: { type: 'string' }, nyala: { type: 'boolean' }, suhu: { type: 'number' } }, required: ['ruang'] }, execute: i => API.ac(String(i.ruang), i.nyala !== false, i.suhu ? Number(i.suhu) : null) },
+  { name: 'pergi_ke', description: 'Memindahkan kamera pengguna ke tempat, gedung, atau ruang (contoh: masjid, coffee shop, ruang kerja softdev, rooftop hidroponik). Mengembalikan nama tujuan.',
+    inputSchema: { type: 'object', properties: { tempat: { type: 'string' } }, required: ['tempat'] }, execute: i => API.goto(String(i.tempat)) },
+  { name: 'simulasi', description: 'Menjalankan simulasi: evakuasi (opsional ruang sumber api), jumat, penyusup, hujan, harian, atau stop untuk menghentikan.',
+    inputSchema: { type: 'object', properties: { nama: { type: 'string', enum: ['evakuasi', 'jumat', 'penyusup', 'hujan', 'harian', 'stop'] }, ruang: { type: 'string' } }, required: ['nama'] }, execute: i => API.sim(String(i.nama), i.ruang ? String(i.ruang) : null) },
+  { name: 'atur_waktu', description: 'Mengubah jam simulasi (0–23.99, desimal) dan opsional hari (Senin…Minggu).',
+    inputSchema: { type: 'object', properties: { jam: { type: 'number' }, hari: { type: 'string' } }, required: ['jam'] }, execute: i => API.time(Number(i.jam), i.hari) },
+  { name: 'lampu_fasad', description: 'Mengatur lampu fasad di setiap sudut bangunan: mode nyala, mati, atau otomatis (menyala saat senja), dan warna hangat, teal, putih, atau dinamis.',
+    inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['nyala', 'mati', 'otomatis'] }, warna: { type: 'string', enum: ['hangat', 'teal', 'putih', 'dinamis'] } } }, execute: i => API.facade(i.mode ? String(i.mode) : '', i.warna ? String(i.warna) : '') },
+  { name: 'aturan_otomasi', description: 'Mengaktifkan atau menonaktifkan aturan otomasi gedung: kosong (lampu & AC mati saat ruang kosong), daylight, co2, precool, pompa, malam, fasad.',
+    inputSchema: { type: 'object', properties: { aturan: { type: 'string', enum: Object.keys(RULES) }, aktif: { type: 'boolean' } }, required: ['aturan', 'aktif'] }, execute: i => API.rule(String(i.aturan), !!i.aktif) },
+  { name: 'ganti_mode', description: 'Mengganti tampilan: denah, rakit, orbit, jelajah, atau monitor.',
+    inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['denah', 'rakit', 'orbit', 'jelajah', 'monitor'] } }, required: ['mode'] }, execute: i => API.mode(String(i.mode)) },
+];
+function aiRules(withTools) {
+  return `Kamu adalah PHICOS, asisten gedung pintar di dalam kembaran digital 3D Kampus Kantor PHICOS Bolon: kantor holding, PHICOS Academy, asrama 64 siswa, gedung parkir 166 motor dengan lapangan di atasnya, coffee shop berkaca cyan, dan Masjid Phicos dengan kolam pantul. Pengguna sedang melihat model 3D ini.
+Aturan:
+- Jawab dalam bahasa Indonesia yang ramah, paling banyak 3 kalimat, tanpa format markdown.
+${withTools ? '- Untuk mengubah apa pun (lampu, AC, kamera, simulasi, waktu, tampilan) kamu WAJIB memanggil alat. Jangan mengaku sudah melakukan sesuatu tanpa memanggil alat.\n- Untuk pertanyaan angka, panggil lihat_status bila data di bawah tidak cukup.' : '- Di sesi ini kamu tidak bisa mengubah apa pun; jawab dari data di bawah dan sarankan perintah seperti "nyalakan lampu ruang holding".'}
+- Semua data sensor adalah simulasi; katakan itu bila pengguna bertanya keaslian data.
+Ruang (id: nama, lantai): ${ROOMS.filter(r => r.type !== 'planned').map(r => `${r.id}: ${r.name}, Lt${r.k + 1}`).join('; ')}.
+Tempat untuk pergi_ke: ${STOPS.filter(s => s.id[0] !== '_').map(s => s.name).join(', ')}.
+Keadaan sekarang: ${statusLine()} Mode tampilan: ${MODE}. Simulasi aktif: ${SIM.active || 'tidak ada'}. Cuaca: ${SIM.rain > .5 ? 'hujan' : 'cerah'}.${withTools ? '' : '\nStatus ruang: ' + API.status().ruang.join('; ')}`;
+}
+(async function initAI() {
+  try { if (window.claude && typeof window.claude.use === 'function') { const s = await window.claude.use('sample'); if (s) { AIS.sample = s; const lim = await s.limits().catch(() => null); AIS.tools = !!(lim && lim.tools); } } } catch (e) { }
+  AIS.ready = true; aiState();
+})();
+function aiState() { $('#aiState').textContent = !AIS.ready ? 'Menyiapkan asisten…' : AIS.sample ? (AIS.tools ? 'Terhubung ke Claude — bisa mengendalikan gedung' : 'Terhubung ke Claude — perintah dijalankan lokal') : 'Mode perintah lokal — tanpa koneksi AI'; }
+function addMsg(kind, text) { const d = document.createElement('div'); d.className = 'msg ' + kind; d.textContent = text; $('#aiLog').appendChild(d); $('#aiLog').scrollTop = 1e6; return d; }
+const AI_SUG = ['Buka integrasi MQTT', 'Matikan aturan ruang kosong', 'Nyalakan lampu fasad warna teal', 'Bawa saya ke masjid', 'Nyalakan lampu ruang kerja softdev', 'AC ruang holding 23 derajat', 'Simulasikan kebakaran di pantry', 'Berapa daya listrik sekarang?', 'Ruang mana yang paling panas?'];
+function renderSug() { $('#aiSug').innerHTML = AI_SUG.map(s => `<button class="chip" type="button">${esc(s)}</button>`).join(''); }
+$('#aiSug').addEventListener('click', e => { const b = e.target.closest('button'); if (b) aiSend(b.textContent); });
+$('#aiBtn').onclick = () => { const a = $('#ai'); const open = !a.classList.contains('open'); a.classList.toggle('open', open); $('#aiBtn').setAttribute('aria-expanded', open);
+  if (open && !$('#aiLog').children.length) { addMsg('b', 'Halo, saya PHICOS. Saya bisa menyalakan lampu, mengatur AC, memindahkan kamera ke ruang mana pun, dan menjalankan simulasi. Coba salah satu saran di bawah.'); renderSug(); }
+  if (open) setTimeout(() => $('#aiIn').focus(), 50); };
+$('#aiClose').onclick = () => { $('#ai').classList.remove('open'); $('#aiBtn').setAttribute('aria-expanded', 'false'); };
+$('#aiForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#aiIn').value.trim(); if (!v) return; $('#aiIn').value = ''; aiSend(v); });
+const AI_ERR = { rate_limited: 'Batas pemakaian Claude tercapai untuk saat ini. Perintah sederhana tetap bisa dijalankan lokal.', session_expired: 'Sesi Claude berakhir. Masuk lagi untuk memakai asisten AI.', refused: 'Permintaan itu tidak bisa dijawab. Coba ungkapkan dengan cara lain.', empty_completion: 'Tidak ada jawaban. Coba permintaan yang lebih singkat.', upstream_error: 'Koneksi ke Claude terputus. Coba kirim lagi.' };
+async function aiSend(text) {
+  if (AIS.busy) { AIS.ctl && AIS.ctl.abort(); }
+  addMsg('u', text);
+  const useClaude = AIS.sample;
+  if (!useClaude || !AIS.tools) { const loc = localCommand(text); if (loc) { addMsg('b', loc); return; } if (!useClaude) { addMsg('b', 'Saya belum mengerti perintah itu. Contoh yang bisa: “nyalakan lampu asrama”, “AC masjid 24 derajat”, “bawa saya ke lapangan”, “simulasikan kebakaran di kitchen cafe”, “atur jam 19”.'); return; } }
+  AIS.busy = true; const bubble = addMsg('b', 'Berpikir…'); const ctl = new AbortController(); AIS.ctl = ctl;
+  const tools = AIS.tools ? AI_TOOLS.map(t => ({ ...t, execute: (inp, cx) => { const r = t.execute(inp || {}); addMsg('t', '• ' + toolNote(t.name, inp || {})); return r; } })) : undefined;
+  try {
+    const input = [{ role: 'user', content: aiRules(!!tools) }, ...AIS.turns.slice(-8), { role: 'user', content: text }];
+    const opts = { modelTier: 'quick', signal: ctl.signal, onText: ({ text: t }) => { bubble.textContent = t; $('#aiLog').scrollTop = 1e6; } };
+    if (tools) opts.tools = tools; else opts.cache = false;
+    const res = await useClaude(input, opts);
+    bubble.textContent = res.text; $('#aiLog').appendChild(bubble); $('#aiLog').scrollTop = 1e6;
+    AIS.turns.push({ role: 'user', content: text }, { role: 'assistant', content: res.text });
+  } catch (e) {
+    const code = e && e.code;
+    if (code === 'cancelled') { bubble.textContent = e.text || '(dihentikan)'; }
+    else if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(code)) { AIS.sample = null; aiState(); const loc = localCommand(text); bubble.textContent = loc || 'Asisten AI tidak diizinkan di tampilan ini, jadi saya beralih ke perintah lokal. Coba: “nyalakan lampu asrama” atau “bawa saya ke masjid”.'; }
+    else if (code === 'tools_unavailable') { AIS.tools = false; aiState(); const loc = localCommand(text); bubble.textContent = loc || 'Alat kendali belum tersedia di tampilan ini. Coba kirim lagi.'; }
+    else { const loc = localCommand(text); bubble.textContent = (e && e.text ? e.text + '\n' : '') + (loc ? loc : (AI_ERR[code] || 'Terjadi gangguan. Coba kirim lagi.')); }
+  } finally { AIS.busy = false; }
+}
+function toolNote(name, i) { return { lihat_status: 'Membaca sensor kampus', lampu_fasad: `Lampu fasad ${i.mode || ''} ${i.warna || ''}`, aturan_otomasi: `Aturan ${i.aturan}: ${i.aktif ? 'aktif' : 'nonaktif'}`, atur_lampu: `Lampu ${i.ruang}: ${i.nyala === false ? 'mati' : i.nyala === null ? 'otomatis' : 'nyala'}`, atur_ac: `AC ${i.ruang}${i.nyala === false ? ': mati' : i.suhu ? ': ' + i.suhu + '°C' : ': nyala'}`, pergi_ke: `Menuju ${i.tempat}`, simulasi: `Simulasi ${i.nama}${i.ruang ? ' di ' + i.ruang : ''}`, atur_waktu: `Waktu ke ${fmtH(+i.jam || 0)}${i.hari ? ' ' + i.hari : ''}`, ganti_mode: `Mode ${i.mode}` }[name] || name; }
+
 // ================= init & loop =================
 function backfill() { // fill the last 24 h of history so the chart is not empty on arrival
   const h0 = SIM.h, d0 = SIM.dow, tank = SIM.tank; SIM.paused = true;
   for (let i = 95; i >= 1; i--) { let h = h0 - i / 4, d = d0; if (h < 0) { h += 24; d = (d0 + 6) % 7; } SIM.h = h; SIM.dow = d; simTick(900, i === 95); }
   SIM.h = h0; SIM.dow = d0; SIM.tank = tank; SIM.log.length = 0; simTick(0, true); SIM.paused = false;
-  SIM.kwh = 0; SIM.solarKwh = 0; for (let s = 0; s < Math.floor(h0 * 4); s++) { SIM.kwh += (SIM.hist.p[s] || 0) / 4; SIM.solarKwh += (SIM.hist.s[s] || 0) / 4; }
+  SIM.kwh = 0; SIM.solarKwh = 0; SIM.saveKwh = 0; for (let s = 0; s < Math.floor(h0 * 4); s++) { SIM.kwh += (SIM.hist.p[s] || 0) / 4; SIM.solarKwh += (SIM.hist.s[s] || 0) / 4; SIM.saveKwh += (SIM.hist.w[s] || 0) / 4; }
 }
 function setLoad(txt, f) { $('#ldTxt').textContent = txt; $('#ldBar').style.width = Math.round(f * 100) + '%'; }
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); if (MODE === 'denah' && !CAMCTL.tw) flyTo(topViewParams(), .01); }
@@ -2342,7 +2709,7 @@ async function init() {
   setLoad('Memplot gambar kerja lantai 1–4…', .65); await tick();
   let n = 0; await buildPlans(() => setLoad('Memplot gambar kerja lantai 1–4…', .65 + (++n) * .06));
   setLoad('Menyalakan sensor…', .92); await tick();
-  initRoomState(); initAgents(); initCCTV(); initNet(); initFire(); initRain(); buildMini(); refreshMatList();
+  initRoomState(); initAgents(); initCCTV(); initNet(); initFire(); initRain(); buildMini(); buildFacade(false); refreshMatList();
   const hash = location.hash.slice(1); const start = ['denah', 'rakit', 'orbit', 'jelajah', 'monitor'].includes(hash) ? hash : 'denah';
   if (start !== 'denah' && start !== 'rakit') { P.build = PT.build = 1; P.paper = PT.paper = 0; P.plan = [0, 0, 0, 0]; }
   if (start !== 'denah') MODE = start;
@@ -2361,16 +2728,17 @@ async function init() {
 const actors = [];
 function frame(now) {
   const dt = Math.min(.05, Math.max(0, (now - last) / 1000)); last = now; T0 += dt;
-  if (!SIM.paused) { SIM.h += dt * SIM.speed / 3600; if (SIM.h >= 24) { SIM.h -= 24; SIM.dow = (SIM.dow + 1) % 7; SIM.kwh = 0; SIM.solarKwh = 0; } simAcc += dt * SIM.speed; }
+  if (!SIM.paused) { SIM.h += dt * SIM.speed / 3600; if (SIM.h >= 24) { SIM.h -= 24; SIM.dow = (SIM.dow + 1) % 7; SIM.kwh = 0; SIM.solarKwh = 0; SIM.saveKwh = 0; } simAcc += dt * SIM.speed; }
   uiAcc += dt; cardAcc += dt;
   if (uiAcc > .25) { if (simAcc > 0) simTick(simAcc); simAcc = 0; uiAcc = 0; colorZones(); renderClock(); if (MODE === 'monitor') renderKPI(); }
   if (cardAcc > 1 && UI.sel && !cardHover) { cardAcc = 0; renderRoomCard(); }
+  if (UI.integ && cardAcc > 2.5 && !cardHover && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#card'))) { cardAcc = 0; renderIntegCard(); }
   // ANPR arrivals in the morning and departures in the afternoon
   if (!SIM.paused && SIM.speed <= 60) { carT -= dt * SIM.speed / 60; if (carT <= 0) { carT = 5 + RND() * 9; const h = SIM.h, wd = SIM.dow >= 1 && SIM.dow <= 5; if (wd && ((h > 6.8 && h < 8.8) || (h > 12.8 && h < 13.2) || (h > 16.4 && h < 17.6)) && !SIM.active) startCar(); } }
   applyP(dt); updateCam(dt);
   if (MODE === 'rakit') { const o = $('#bdO'), rr = $('#bdR'); if (o && document.activeElement !== rr) { o.textContent = Math.round(P.build * 100) + '%'; rr.value = P.build; } }
   camera.near = CAMCTL.mode === 'walk' ? .08 : clamp(CAMCTL.r * .02, .3, 24); camera.updateProjectionMatrix();
-  const L = applyLighting(P); updateRoomVisuals(L.N);
+  const L = applyLighting(P); updateRoomVisuals(L.N); updateFacade(dt, L.N, T0);
   updateAmbient(dt); updateAgents(dt); updateCar(dt); updateGate(dt);
   actors.length = 0; if (CAMCTL.mode === 'walk') actors.push([CAMCTL.walk.x, CAMCTL.walk.y, CAMCTL.walk.z]);
   for (let i = 0; i < AG.list.length && actors.length < 90; i++) { const a = AG.list[i]; if (a.wait < 1e8) actors.push([a.x, a.y, a.z]); }
@@ -2384,7 +2752,7 @@ function frame(now) {
 let fpsN = 0, fpsT = 0;
 function loop(now) { frame(now); fpsN++; if (now - fpsT > 1000) { DBG.fps = fpsN * 1000 / (now - fpsT); fpsN = 0; fpsT = now; } requestAnimationFrame(loop); }
 const DBG = { fps: 0 };
-if (/debug/.test(location.search)) window.__phicos = { walkSim: (codes, secs) => { codes.forEach(c => KEYS[c] = true); for (let i = 0; i < secs * 20; i++) walkStep(.05); codes.forEach(c => KEYS[c] = false); const w = CAMCTL.walk; return [w.x.toFixed(2), w.y.toFixed(2), w.z.toFixed(2)]; }, DET, setDetailed, floorAtGLB, DBG, P, PT, SIM, CAMCTL, setMode, runSim, stopSim, goStop, selectRoom, ROOM, renderer, API, localCommand, flyTo, AG, stepAgents: s => { for (let i = 0; i < s * 20; i++) { updateAgents(.05); updateScenario(.05); } }, fastForward: s => { CAMCTL.tw && (CAMCTL.tw.t = 1); P.build = PT.build; P.explode = PT.explode; P.paper = PT.paper; P.xray = PT.xray; P.zones = PT.zones; P.plan = PT.plan.slice(); P.reveal = 999; } };
+if (/debug/.test(location.search)) window.__phicos = { INTEG, RULES, openInteg, pointListCSV, haConfig, FAC, nightView, setFacade, walkSim: (codes, secs) => { codes.forEach(c => KEYS[c] = true); for (let i = 0; i < secs * 20; i++) walkStep(.05); codes.forEach(c => KEYS[c] = false); const w = CAMCTL.walk; return [w.x.toFixed(2), w.y.toFixed(2), w.z.toFixed(2)]; }, DET, setDetailed, floorAtGLB, DBG, P, PT, SIM, CAMCTL, setMode, runSim, stopSim, goStop, selectRoom, ROOM, renderer, API, localCommand, flyTo, AG, stepAgents: s => { for (let i = 0; i < s * 20; i++) { updateAgents(.05); updateScenario(.05); } }, fastForward: s => { CAMCTL.tw && (CAMCTL.tw.t = 1); P.build = PT.build; P.explode = PT.explode; P.paper = PT.paper; P.xray = PT.xray; P.zones = PT.zones; P.plan = PT.plan.slice(); P.reveal = 999; } };
 init().catch(err => { console.error(err); const L = $('#loader'); if (L) { L.classList.add('err'); $('#ldTxt').textContent = 'Model gagal disusun: ' + (err && err.message || err) + '. Muat ulang halaman untuk mencoba lagi.'; } });
 
 
